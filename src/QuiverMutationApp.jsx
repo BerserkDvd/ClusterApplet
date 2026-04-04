@@ -195,20 +195,18 @@ function findSpecGen(nodesInit, Binit, maxMs = 5000) {
 
 function fmtVec(v) { return "(" + v.join(",") + ")"; }
 function fmtCharge(c) {
-  const parts = [];
+  let s = "";
   for (let i = 0; i < c.length; i++) {
-    if (c[i] === 1) parts.push(`γ${i+1}`);
-    else if (c[i] > 1) parts.push(`${c[i]}γ${i+1}`);
+    if (c[i] === 0) continue;
+    const abs = Math.abs(c[i]);
+    const sign = c[i] > 0 ? (s ? "+" : "") : "−";
+    const coeff = abs === 1 ? "" : String(abs);
+    s += sign + coeff + `γ${i+1}`;
   }
-  return parts.length ? parts.join("+") : "0";
+  return s || "0";
 }
 function fmtChargeNeg(c) {
-  // Format a charge as negative: c is the ORIGINAL (positive) charge
-  const inner = fmtCharge(c);
-  if (!inner || inner === "0") return "0";
-  // Single term: just negate
-  if (!inner.includes("+")) return `−${inner}`;
-  return `−(${inner})`;
+  return fmtCharge(c.map(x => -x));
 }
 
 function getEdges(nodes, B) {
@@ -374,6 +372,16 @@ export default function QuiverMutationApp() {
     if (!isNaN(v)) { const nn = dc(nodes); nn[editingCharge.ni].charge[editingCharge.ci] = v; setNodes(nn); }
     setEditingCharge(null);
   };
+
+  const canonicalizeCharges = useCallback(() => {
+    if (nodes.length === 0) return;
+    pushHistory();
+    const n = nodes.length;
+    const nn = dc(nodes);
+    for (let j = 0; j < n; j++)
+      nn[j].charge = Array.from({ length: n }, (_, i) => i === j ? 1 : 0);
+    setNodes(nn);
+  }, [nodes, pushHistory]);
 
   const doFindSpecGen = useCallback(() => {
     if (nodes.length === 0) return;
@@ -678,14 +686,18 @@ export default function QuiverMutationApp() {
                   </div>
                 ))}
               </div>
-              {mode==="construct" && (
-                <div style={{ marginTop:8 }}>
+              <div style={{ marginTop:8, display:"flex", gap:6, flexWrap:"wrap" }}>
+                {mode==="construct" && (
                   <button onClick={() => toggleFrozen(nodes.length-1)} disabled={!nodes.length}
                     style={{ background:"transparent", color:C.dim, border:`1px solid ${C.border}`, borderRadius:4, padding:"3px 8px", cursor:"pointer", fontSize:10, fontFamily:mono }}>
                     Toggle last frozen
                   </button>
-                </div>
-              )}
+                )}
+                <button onClick={canonicalizeCharges} disabled={!nodes.length}
+                  style={{ background:"transparent", color:C.dim, border:`1px solid ${C.border}`, borderRadius:4, padding:"3px 8px", cursor:"pointer", fontSize:10, fontFamily:mono }}>
+                  Reset charges (δᵢⱼ)
+                </button>
+              </div>
             </div>
           )}
 
