@@ -39,6 +39,23 @@ const PRESETS = [
     positions: [[300,350],[500,350],[400,200],[400,500]],
     frozen: [false,false,false,false],
     B: [[0,0,-1,1],[0,0,1,-1],[1,-1,0,0],[-1,1,0,0]] },
+  // Pure Yin triangles — single FG-K triangulation, no amalgam glue.
+  // Nodes are T(K-3) internal cluster variables in lex order.
+  { name: "FG-K3 Yin triangle", n: 1,
+    positions: [[400,300]],
+    frozen: [false],
+    B: [[0]] },
+  // Lex T(1): L_0=(0,0,1), L_1=(0,1,0), L_2=(1,0,0). 3-cycle 0→2→1→0.
+  { name: "FG-K4 Yin triangle", n: 3,
+    positions: [[325,380],[475,380],[400,220]],
+    frozen: [false,false,false],
+    B: [[0,-1,1],[1,0,-1],[-1,1,0]] },
+  // Lex T(2): L_0=(0,0,2), L_1=(0,1,1), L_2=(0,2,0),
+  //          L_3=(1,0,1), L_4=(1,1,0), L_5=(2,0,0).
+  { name: "FG-K5 Yin triangle", n: 6,
+    positions: [[275,430],[400,430],[525,430],[337,290],[462,290],[400,150]],
+    frozen: [false,false,false,false,false,false],
+    B: [[0,-1,0,1,0,0],[1,0,-1,-1,1,0],[0,1,0,0,-1,0],[-1,1,0,0,-1,1],[0,-1,1,1,0,-1],[0,0,0,-1,1,0]] },
   // Index order: L_0=(0,0,1), L_1=(0,1,0), L_2=(1,0,0),
   //              R_0=(0,0,1), R_1=(0,1,0), R_2=(1,0,0),
   //              g_0=(0,0,2), g_1=(0,1,1), g_2=(0,2,0)
