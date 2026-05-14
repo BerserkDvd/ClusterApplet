@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 
 const R = 24, AH = 9, ARR_GAP = 8;
 
@@ -35,17 +35,139 @@ const PRESETS = [
     positions: [[60,220],[180,220],[300,220],[420,220],[540,220]],
     frozen: [false,false,false,false,false],
     B: [[0,1,0,0,0],[-1,0,1,0,0],[0,-1,0,1,0],[0,0,-1,0,1],[0,0,0,-1,0]] },
+  { name: "A₂ amalgam: 2× FG-K3 (Yin/Yin)", n: 4,
+    positions: [[300,350],[500,350],[400,200],[400,500]],
+    frozen: [false,false,false,false],
+    B: [[0,0,-1,1],[0,0,1,-1],[1,-1,0,0],[-1,1,0,0]] },
+  // Index order: L_0=(0,0,1), L_1=(0,1,0), L_2=(1,0,0),
+  //              R_0=(0,0,1), R_1=(0,1,0), R_2=(1,0,0),
+  //              g_0=(0,0,2), g_1=(0,1,1), g_2=(0,2,0)
+  // Predicted total spec length: 17 = (K-1)^2 + 2 K(K-1)(K-2)/6
+  { name: "A₃ amalgam: 2× FG-K4 (Yin/Yin)", n: 9,
+    positions: [[300,200],[300,500],[150,350],[500,200],[500,500],[650,350],[400,200],[400,350],[400,500]],
+    frozen: [false,false,false,false,false,false,false,false,false],
+    B: [[0,-1,1,0,0,0,-1,1,0],[1,0,-1,0,0,0,0,-1,1],[-1,1,0,0,0,0,0,0,0],[0,0,0,0,-1,1,0,1,-1],[0,0,0,1,0,-1,1,-1,0],[0,0,0,-1,1,0,0,0,0],[1,0,0,0,-1,0,0,0,0],[-1,1,0,-1,1,0,0,0,0],[0,-1,0,1,0,0,0,0,0]] },
+  // Predicted total spec length: 36 = (K-1)^2 + 2 K(K-1)(K-2)/6
+  { name: "A₄ amalgam: 2× FG-K5 (Yin/Yin)", n: 16,
+    positions: [[300,200],[300,350],[300,500],[150,200],[150,500],[0,350],[500,200],[500,350],[500,500],[650,200],[650,500],[800,350],[400,200],[400,300],[400,400],[400,500]],
+    frozen: [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
+    B: [[0,-1,0,1,0,0,0,0,0,0,0,0,-1,1,0,0],[1,0,-1,-1,1,0,0,0,0,0,0,0,0,-1,1,0],[0,1,0,0,-1,0,0,0,0,0,0,0,0,0,-1,1],[-1,1,0,0,-1,1,0,0,0,0,0,0,0,0,0,0],[0,-1,1,1,0,-1,0,0,0,0,0,0,0,0,0,0],[0,0,0,-1,1,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,-1,0,1,0,0,0,0,1,-1],[0,0,0,0,0,0,1,0,-1,-1,1,0,0,1,-1,0],[0,0,0,0,0,0,0,1,0,0,-1,0,1,-1,0,0],[0,0,0,0,0,0,-1,1,0,0,-1,1,0,0,0,0],[0,0,0,0,0,0,0,-1,1,1,0,-1,0,0,0,0],[0,0,0,0,0,0,0,0,0,-1,1,0,0,0,0,0],[1,0,0,0,0,0,0,0,-1,0,0,0,0,0,0,0],[-1,1,0,0,0,0,0,-1,1,0,0,0,0,0,0,0],[0,-1,1,0,0,0,-1,1,0,0,0,0,0,0,0,0],[0,0,-1,0,0,0,1,0,0,0,0,0,0,0,0,0]] },
 ];
 
 function dc(o) { return JSON.parse(JSON.stringify(o)); }
 
 function makeInitial(preset) {
-  const { n, positions, frozen, B } = preset;
+  const { n, positions, frozen, B, charges } = preset;
   const nodes = positions.map((p, i) => ({
-    id: i, x: p[0], y: p[1], frozen: frozen[i],
-    charge: Array.from({ length: n }, (_, j) => j === i ? 1 : 0),
+    id: i, x: p[0], y: p[1], frozen: !!frozen[i],
+    charge: charges && charges[i]
+      ? [...charges[i]]
+      : Array.from({ length: n }, (_, j) => j === i ? 1 : 0),
   }));
   return { nodes, B: dc(B) };
+}
+
+/* ── Preset import/export (Path B: shareable URL + paste) ── */
+function validatePreset(obj) {
+  if (!obj || typeof obj !== "object") throw new Error("expected a JSON object");
+  const n = Number.isInteger(obj.n) ? obj.n
+          : (Array.isArray(obj.B) ? obj.B.length : null);
+  if (!Number.isInteger(n) || n < 0) throw new Error("missing or invalid n");
+  if (!Array.isArray(obj.B) || obj.B.length !== n)
+    throw new Error(`B must be a ${n}×${n} matrix`);
+  for (let i = 0; i < n; i++) {
+    if (!Array.isArray(obj.B[i]) || obj.B[i].length !== n)
+      throw new Error(`B row ${i+1} must have length ${n}`);
+    for (let j = 0; j < n; j++) {
+      if (!Number.isInteger(obj.B[i][j]))
+        throw new Error(`B[${i+1}][${j+1}] is not an integer`);
+    }
+  }
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    if (obj.B[i][j] + obj.B[j][i] !== 0)
+      throw new Error(`B not antisymmetric at (${i+1},${j+1}): ${obj.B[i][j]} vs ${obj.B[j][i]}`);
+  }
+  let positions = obj.positions;
+  if (!Array.isArray(positions) || positions.length !== n) {
+    const cx = 300, cy = 235, r = Math.max(80, Math.min(180, 50 + 14 * n));
+    positions = Array.from({ length: n }, (_, i) => {
+      if (n <= 1) return [cx, cy];
+      const a = 2 * Math.PI * i / n - Math.PI / 2;
+      return [Math.round(cx + r * Math.cos(a)), Math.round(cy + r * Math.sin(a))];
+    });
+  } else {
+    positions = positions.map((p, i) => {
+      if (!Array.isArray(p) || p.length !== 2)
+        throw new Error(`position ${i+1} must be [x,y]`);
+      return [Number(p[0]), Number(p[1])];
+    });
+  }
+  let frozen = obj.frozen;
+  if (frozen == null) frozen = Array(n).fill(false);
+  if (!Array.isArray(frozen) || frozen.length !== n)
+    throw new Error("frozen must have length n");
+  frozen = frozen.map(Boolean);
+  let charges = obj.charges;
+  if (charges != null) {
+    if (!Array.isArray(charges) || charges.length !== n)
+      throw new Error("charges must have length n");
+    charges = charges.map((c, i) => {
+      if (!Array.isArray(c) || c.length !== n)
+        throw new Error(`charges[${i+1}] must have length ${n}`);
+      return c.map(v => {
+        const x = Number(v);
+        if (!Number.isFinite(x)) throw new Error(`charges[${i+1}] has non-numeric entry`);
+        return x;
+      });
+    });
+  }
+  const preset = {
+    name: (typeof obj.name === "string" && obj.name.trim()) ? obj.name.trim() : "Imported",
+    n, positions, frozen, B: obj.B,
+  };
+  if (charges) preset.charges = charges;
+  return preset;
+}
+
+function parsePresetText(text) {
+  let s = (text || "").trim();
+  if (!s) throw new Error("empty input");
+  const hashIdx = s.indexOf("#");
+  if (hashIdx >= 0 && /^https?:\/\//i.test(s)) s = s.slice(hashIdx + 1);
+  else if (s.startsWith("#")) s = s.slice(1);
+  if (s.startsWith("q=")) s = s.slice(2);
+  if (!s.startsWith("{") && !s.startsWith("[")) {
+    try { s = decodeURIComponent(s); } catch { /* leave as-is */ }
+  }
+  let obj;
+  try { obj = JSON.parse(s); }
+  catch (e) { throw new Error("invalid JSON: " + e.message); }
+  return validatePreset(obj);
+}
+
+function presetToJSON(preset) {
+  const obj = {
+    name: preset.name,
+    n: preset.n,
+    positions: preset.positions,
+    frozen: preset.frozen,
+    B: preset.B,
+  };
+  if (preset.charges) obj.charges = preset.charges;
+  return JSON.stringify(obj, null, 2);
+}
+
+function buildShareURL(preset) {
+  const compact = JSON.stringify({
+    name: preset.name,
+    n: preset.n,
+    positions: preset.positions,
+    frozen: preset.frozen,
+    B: preset.B,
+    ...(preset.charges ? { charges: preset.charges } : {}),
+  });
+  const loc = (typeof window !== "undefined" && window.location) ? window.location : { origin: "", pathname: "", search: "" };
+  return loc.origin + loc.pathname + loc.search + "#" + encodeURIComponent(compact);
 }
 
 function mutateQuiver(nodesIn, Bin, k) {
@@ -241,6 +363,7 @@ function nodeAt(nodes, x, y) {
 }
 
 export default function QuiverMutationApp() {
+  const [presets, setPresets] = useState(PRESETS);
   const init0 = makeInitial(PRESETS[1]);
   const [nodes, setNodes] = useState(init0.nodes);
   const [B, setB] = useState(init0.B);
@@ -257,10 +380,15 @@ export default function QuiverMutationApp() {
   const [specResult, setSpecResult] = useState(null);
   const [specStep, setSpecStep] = useState(-1); // -1 = not guided, 0..n = current step
   const [searching, setSearching] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState("");
+  const [importNote, setImportNote] = useState("");
   const svgRef = useRef(null);
   const dragRef = useRef(null);
   const wasDrag = useRef(false);
   const nextId = useRef(100);
+  const hashLoadedRef = useRef(false);
   const [svgSize, setSvgSize] = useState({ w: 800, h: 500 });
 
   const svgRefCb = useCallback((el) => {
@@ -276,14 +404,42 @@ export default function QuiverMutationApp() {
     return () => ro.disconnect();
   }, []);
 
-  const loadPreset = useCallback((idx) => {
-    const init = makeInitial(PRESETS[idx]);
+  const installPreset = useCallback((preset) => {
+    const init = makeInitial(preset);
     setNodes(init.nodes); setB(init.B);
     setHistory([]); setMutLog([]);
-    setPreset(idx); setFlash(null);
+    setFlash(null);
     setEditingCharge(null); setDrawFrom(null); setDrawMouse(null);
     setSpecResult(null); setSpecStep(-1);
   }, []);
+
+  const loadPreset = useCallback((idx) => {
+    installPreset(presets[idx]);
+    setPreset(idx);
+  }, [presets, installPreset]);
+
+  const importPreset = useCallback((preset) => {
+    setPresets(p => {
+      const next = [...p, preset];
+      setPreset(next.length - 1);
+      return next;
+    });
+    installPreset(preset);
+  }, [installPreset]);
+
+  useEffect(() => {
+    if (hashLoadedRef.current) return;
+    hashLoadedRef.current = true;
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (!hash || hash.length <= 1) return;
+    try {
+      const preset = parsePresetText(hash);
+      importPreset(preset);
+    } catch (e) {
+      console.warn("URL-hash preset failed to load:", e.message);
+    }
+  }, [importPreset]);
 
   const pushHistory = useCallback(() => {
     setHistory(h => [...h, { nodes: dc(nodes), B: dc(B), mutLog: dc(mutLog) }]);
@@ -403,6 +559,50 @@ export default function QuiverMutationApp() {
     }, 50);
   }, [nodes, B]);
 
+  // ── Share / Import helpers ──
+  const currentPreset = useMemo(() => ({
+    name: presets[preset]?.name || "Custom",
+    n: nodes.length,
+    positions: nodes.map(nd => [Math.round(nd.x), Math.round(nd.y)]),
+    frozen: nodes.map(nd => !!nd.frozen),
+    B: dc(B),
+    charges: nodes.map(nd => [...nd.charge]),
+  }), [nodes, B, preset, presets]);
+
+  const exportJSON = useMemo(() => presetToJSON(currentPreset), [currentPreset]);
+
+  const handleLoadImport = useCallback(() => {
+    setImportError(""); setImportNote("");
+    try {
+      const p = parsePresetText(importText);
+      importPreset(p);
+      setImportNote(`Loaded "${p.name}" (n=${p.n})`);
+    } catch (e) {
+      setImportError(e.message);
+    }
+  }, [importText, importPreset]);
+
+  const handleCopyURL = useCallback(async () => {
+    setImportError(""); setImportNote("");
+    try {
+      const url = buildShareURL(currentPreset);
+      await navigator.clipboard.writeText(url);
+      setImportNote("Shareable URL copied to clipboard");
+    } catch (e) {
+      setImportError("Clipboard error: " + e.message);
+    }
+  }, [currentPreset]);
+
+  const handleCopyJSON = useCallback(async () => {
+    setImportError(""); setImportNote("");
+    try {
+      await navigator.clipboard.writeText(exportJSON);
+      setImportNote("JSON copied to clipboard");
+    } catch (e) {
+      setImportError("Clipboard error: " + e.message);
+    }
+  }, [exportJSON]);
+
   // ── Mouse handlers ──
   const onSvgMouseDown = useCallback((e) => {
     if (e.button !== 0) return;
@@ -505,7 +705,7 @@ export default function QuiverMutationApp() {
         <div style={{ fontWeight:700, fontSize:15, color:C.accent, letterSpacing:0.5, marginRight:4 }}>◇ Quiver Mutation</div>
         <select value={preset} onChange={e => loadPreset(+e.target.value)}
           style={{ background:C.bg, color:C.text, border:`1px solid ${C.border}`, borderRadius:4, padding:"4px 8px", fontSize:12, fontFamily:mono }}>
-          {PRESETS.map((p,i) => <option key={i} value={i}>{p.name}</option>)}
+          {presets.map((p,i) => <option key={i} value={i}>{p.name}</option>)}
         </select>
         <div style={{ width:1, height:20, background:C.border, margin:"0 4px" }} />
         {modeBtn("mutate", "Mutate")}
@@ -521,6 +721,13 @@ export default function QuiverMutationApp() {
             border: `1px solid ${searching ? C.border : C.specgen}`, borderRadius: 4,
             padding: "4px 12px", cursor: searching ? "wait" : "pointer", fontSize: 12, fontFamily: mono, fontWeight: 700 }}>
           {searching ? "Searching…" : "Find S"}
+        </button>
+        <div style={{ width:1, height:20, background:C.border, margin:"0 4px" }} />
+        <button onClick={() => { setShowShare(true); setImportError(""); setImportNote(""); }}
+          style={{ background: "transparent", color: C.accent,
+            border: `1px solid ${C.accent}`, borderRadius: 4,
+            padding: "4px 12px", cursor: "pointer", fontSize: 12, fontFamily: mono, fontWeight: 700 }}>
+          ⇄ Share
         </button>
       </div>
 
@@ -798,6 +1005,77 @@ export default function QuiverMutationApp() {
           </div>
         </div>
       </div>
+
+      {showShare && (
+        <div onClick={() => setShowShare(false)}
+          style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.65)",
+            display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:8,
+              padding:16, width:"min(740px, 94vw)", maxHeight:"88vh", overflow:"auto",
+              display:"flex", flexDirection:"column", gap:12, color:C.text, fontFamily:mono }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div style={{ fontWeight:700, color:C.accent, fontSize:14, letterSpacing:0.5 }}>⇄ Share / Import</div>
+              <button onClick={() => setShowShare(false)}
+                style={{ background:"transparent", color:C.dim, border:`1px solid ${C.border}`, borderRadius:4,
+                  padding:"2px 10px", cursor:"pointer", fontSize:12, fontFamily:mono }}>✕</button>
+            </div>
+
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:C.accent, marginBottom:6, textTransform:"uppercase", letterSpacing:1 }}>Import</div>
+              <div style={{ fontSize:11, color:C.dim, marginBottom:6, lineHeight:1.5 }}>
+                Paste a preset JSON (<code>{`{name, n, positions, frozen, B, charges?}`}</code>),
+                a full URL with <code>#&lt;json&gt;</code>, or a bare <code>#</code>-fragment.
+                B must be antisymmetric with integer entries.
+              </div>
+              <textarea value={importText} onChange={e => setImportText(e.target.value)} rows={6}
+                placeholder='{"name":"K=4 amalgam","n":9,"positions":[[..,..],...],"frozen":[false,...],"B":[[0,...],...]}'
+                style={{ width:"100%", boxSizing:"border-box", background:C.bg, color:C.text,
+                  border:`1px solid ${C.border}`, borderRadius:4, padding:8, fontSize:12, fontFamily:mono,
+                  resize:"vertical" }}/>
+              <div style={{ display:"flex", gap:8, marginTop:8, alignItems:"center", flexWrap:"wrap" }}>
+                <button onClick={handleLoadImport}
+                  style={{ background:C.accent, color:"#0f172a", border:`1px solid ${C.accent}`, borderRadius:4,
+                    padding:"4px 14px", cursor:"pointer", fontSize:12, fontFamily:mono, fontWeight:700 }}>
+                  Load
+                </button>
+                <button onClick={() => { setImportText(""); setImportError(""); setImportNote(""); }}
+                  style={{ background:"transparent", color:C.dim, border:`1px solid ${C.border}`, borderRadius:4,
+                    padding:"4px 10px", cursor:"pointer", fontSize:12, fontFamily:mono }}>
+                  Clear
+                </button>
+                {importError && <span style={{ color:C.neg, fontSize:11 }}>✗ {importError}</span>}
+                {importNote && !importError && <span style={{ color:C.green, fontSize:11 }}>✓ {importNote}</span>}
+              </div>
+            </div>
+
+            <div style={{ height:1, background:C.border }}/>
+
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:C.accent, marginBottom:6, textTransform:"uppercase", letterSpacing:1 }}>Export current state</div>
+              <div style={{ display:"flex", gap:8, marginBottom:8, flexWrap:"wrap" }}>
+                <button onClick={handleCopyURL}
+                  style={{ background:C.accent, color:"#0f172a", border:`1px solid ${C.accent}`, borderRadius:4,
+                    padding:"4px 12px", cursor:"pointer", fontSize:12, fontFamily:mono, fontWeight:700 }}>
+                  Copy shareable URL
+                </button>
+                <button onClick={handleCopyJSON}
+                  style={{ background:"transparent", color:C.text, border:`1px solid ${C.border}`, borderRadius:4,
+                    padding:"4px 12px", cursor:"pointer", fontSize:12, fontFamily:mono }}>
+                  Copy JSON
+                </button>
+              </div>
+              <textarea readOnly value={exportJSON} rows={12}
+                style={{ width:"100%", boxSizing:"border-box", background:C.bg, color:C.text,
+                  border:`1px solid ${C.border}`, borderRadius:4, padding:8, fontSize:12, fontFamily:mono,
+                  resize:"vertical" }}/>
+              <div style={{ fontSize:10, color:C.dim, marginTop:4 }}>
+                Includes current node positions, frozen flags, B-matrix, and charge vectors (post any mutations applied in this session).
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
