@@ -39,30 +39,16 @@ Preset JSON shape accepted (identical to PRESETS entry plus optional `charges`):
 So your diagnostic dumps can emit a one-click `https://.../#<URI-encoded-JSON>`
 URL and the user gets the quiver instantly.
 
-### Path A — hardcoded amalgam presets
+### Path A — hardcoded amalgam presets — COMPLETE
 
-Inserted **only the K=3 entry** so far:
+All three amalgam presets are now in the dropdown:
 
-```js
-{ name: "A₂ amalgam: 2× FG-K3 (Yin/Yin)", n: 4,
-  positions: [[300,350],[500,350],[400,200],[400,500]],
-  frozen: [false,false,false,false],
-  B: [[0,0,-1,1],[0,0,1,-1],[1,-1,0,0],[-1,1,0,0]] },
-```
+- `A₂ amalgam: 2× FG-K3 (Yin/Yin)`     n=4
+- `A₃ amalgam: 2× FG-K4 (Yin/Yin)`     n=9   (predicted spec length 17)
+- `A₄ amalgam: 2× FG-K5 (Yin/Yin)`     n=16  (predicted spec length 36)
 
-**Missing — please re-send**: the K=4 (n=9) and K=5 amalgam preset objects.
-The user's chat paste contained only the K=3 object; the trio mentioned in
-the brief never arrived in full. Either:
-
-1. Drop them as a new diagnostic file at
-   `restructuring_plans/12_class_s_amalgamation/diagnostics/clusterapplet_presets.jsx`
-   on the Cluster `claude/plan-12-class-s-amalgamation` branch and make
-   sure the file is reachable by raw GitHub URL (the brief URL currently
-   404s — the repo appears private to my WebFetch); or
-2. Emit them as Path-B shareable URLs and have the user paste them into the
-   applet directly (no PR round-trip needed).
-
-Option (2) is preferred — it's exactly what Path B was built for.
+All three B matrices verified antisymmetric integer skew-symmetric of
+correct dimension. `npm run build` passes.
 
 ## Quick-test recipe (for the user)
 
