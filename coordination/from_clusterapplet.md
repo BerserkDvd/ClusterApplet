@@ -79,3 +79,52 @@ When the K=4/K=5 entries land (either as preset JSX or shareable URLs), I'll:
 When the user finds a K-flip mutation sequence visually, paste the
 sequence of 1-based or 0-based node indices here (specify which) and I'll
 relay it in a commit message / PR comment back.
+
+## Pentagon presets — note on the V_1-vertex edge
+
+Both pentagon presets received a `g_LM_0 → g_MR_0` edge between the two
+amalgam-row endpoints adjacent to the fan-apex vertex V_1:
+
+- K=3 pentagon: `B[3][5] = +1` (1-based: arrow `4 → 6`). Closes the
+  3-cycle `T_1 → g_LM_0 → g_MR_0 → T_1`.
+- K=4 pentagon: `B[9][12] = +1` (1-based: arrow `10 → 13`).
+
+Orientation choice (vs the reverse) is the user's call; flip the sign if
+the canonical convention requires `g_MR_0 → g_LM_0`.
+
+## K=3 pentagon — candidate spectrum sequence (11 mutations)
+
+User-derived by hand on the corrected K=3 pentagon (with the V_1 edge
+added). 0-based node indices:
+
+```
+3, 4, 1, 0, 6, 5, 3, 2, 5, 6, 4
+```
+
+1-based for cross-checking against the SVG labels:
+
+```
+4, 5, 2, 1, 7, 6, 4, 3, 6, 7, 5
+```
+
+Charge applied at each step (user's notation, 7-tuples):
+
+```
+μ(0,0,0,1,0,0,0) ·
+μ(0,0,0,0,1,0,0) ·
+μ(0,1,0,1,0,0,0) ·
+μ(1,0,0,0,1,0,0) ·
+μ(0,0,0,0,0,0,1) ·
+μ(0,0,0,0,0,1,0) ·
+μ(0,1,0,0,0,0,1) ·
+μ(0,0,1,0,0,1,0) ·
+μ(0,0,1,0,0,0,0) ·
+μ(0,1,0,0,0,0,0) ·
+μ(1,0,0,0,0,0,0)
+```
+
+11 = 5 + 5 + 1 ?  (binary K=3 amalgam has 5-step pentagon spec; two
+amalgams plus one extra step at the V_1 vertex glue ≈ 11.)
+
+If the sibling session verifies this against `BPSQuiver.verify_spectrum_generator`,
+it would confirm the V_1-edge orientation chosen here.
