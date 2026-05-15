@@ -47,6 +47,12 @@ All three amalgam presets are now in the dropdown:
 - `A₃ amalgam: 2× FG-K4 (Yin/Yin)`     n=9   (predicted spec length 17)
 - `A₄ amalgam: 2× FG-K5 (Yin/Yin)`     n=16  (predicted spec length 36)
 
+Plus the pre-amalgamation pure Yin triangles for direct comparison:
+
+- `FG-K3 Yin triangle`                 n=1   (single node)
+- `FG-K4 Yin triangle`                 n=3   (oriented 3-cycle on T(1))
+- `FG-K5 Yin triangle`                 n=6   (hex on T(2))
+
 All three B matrices verified antisymmetric integer skew-symmetric of
 correct dimension. `npm run build` passes.
 
