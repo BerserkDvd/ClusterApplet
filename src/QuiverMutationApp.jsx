@@ -138,11 +138,36 @@ function validatePreset(obj) {
       });
     });
   }
+  let mutLogIn = obj.mutLog;
+  if (mutLogIn != null) {
+    if (!Array.isArray(mutLogIn)) throw new Error("mutLog must be an array");
+    mutLogIn = mutLogIn.map((m, i) => {
+      if (!m || typeof m !== "object") throw new Error(`mutLog[${i}] must be an object`);
+      if (!Number.isInteger(m.index)) throw new Error(`mutLog[${i}].index must be an integer`);
+      const c = Array.isArray(m.charge) ? m.charge.map(Number) : [];
+      return { index: m.index, charge: c };
+    });
+  }
+  let specIn = obj.spec;
+  if (specIn != null) {
+    if (typeof specIn !== "object" || !Array.isArray(specIn.seq))
+      throw new Error("spec must be {seq:[...], charges?:[[...]], method?:string}");
+    specIn = {
+      seq: specIn.seq.map(v => {
+        if (!Number.isInteger(v)) throw new Error("spec.seq entries must be integers");
+        return v;
+      }),
+      charges: Array.isArray(specIn.charges) ? specIn.charges.map(c => Array.isArray(c) ? c.map(Number) : []) : [],
+      method: typeof specIn.method === "string" ? specIn.method : "imported",
+    };
+  }
   const preset = {
     name: (typeof obj.name === "string" && obj.name.trim()) ? obj.name.trim() : "Imported",
     n, positions, frozen, B: obj.B,
   };
   if (charges) preset.charges = charges;
+  if (mutLogIn) preset.mutLog = mutLogIn;
+  if (specIn) preset.spec = specIn;
   return preset;
 }
 
@@ -171,6 +196,8 @@ function presetToJSON(preset) {
     B: preset.B,
   };
   if (preset.charges) obj.charges = preset.charges;
+  if (preset.mutLog) obj.mutLog = preset.mutLog;
+  if (preset.spec) obj.spec = preset.spec;
   return JSON.stringify(obj, null, 2);
 }
 
@@ -182,6 +209,8 @@ function buildShareURL(preset) {
     frozen: preset.frozen,
     B: preset.B,
     ...(preset.charges ? { charges: preset.charges } : {}),
+    ...(preset.mutLog ? { mutLog: preset.mutLog } : {}),
+    ...(preset.spec ? { spec: preset.spec } : {}),
   });
   const loc = (typeof window !== "undefined" && window.location) ? window.location : { origin: "", pathname: "", search: "" };
   return loc.origin + loc.pathname + loc.search + "#" + encodeURIComponent(compact);
@@ -427,7 +456,10 @@ export default function QuiverMutationApp() {
   const installPreset = useCallback((preset) => {
     const init = makeInitial(preset);
     setNodes(init.nodes); setB(init.B);
-    setHistory([]); setMutLog([]);
+    setHistory([]);
+    setMutLog(preset.mutLog
+      ? preset.mutLog.map(m => ({ index: m.index, charge: Array.isArray(m.charge) ? [...m.charge] : [] }))
+      : []);
     setFlash(null);
     setEditingCharge(null); setDrawFrom(null); setDrawMouse(null);
     setSpecResult(null); setSpecStep(-1);
@@ -609,14 +641,27 @@ export default function QuiverMutationApp() {
   }, [nodes, B]);
 
   // ── Share / Import helpers ──
-  const currentPreset = useMemo(() => ({
-    name: presets[preset]?.name || "Custom",
-    n: nodes.length,
-    positions: nodes.map(nd => [Math.round(nd.x), Math.round(nd.y)]),
-    frozen: nodes.map(nd => !!nd.frozen),
-    B: dc(B),
-    charges: nodes.map(nd => [...nd.charge]),
-  }), [nodes, B, preset, presets]);
+  const currentPreset = useMemo(() => {
+    const obj = {
+      name: presets[preset]?.name || "Custom",
+      n: nodes.length,
+      positions: nodes.map(nd => [Math.round(nd.x), Math.round(nd.y)]),
+      frozen: nodes.map(nd => !!nd.frozen),
+      B: dc(B),
+      charges: nodes.map(nd => [...nd.charge]),
+    };
+    if (mutLog.length > 0) {
+      obj.mutLog = mutLog.map(m => ({ index: m.index, charge: [...m.charge] }));
+    }
+    if (specResult && specResult.seq) {
+      obj.spec = {
+        seq: [...specResult.seq],
+        charges: (specResult.charges || []).map(c => [...c]),
+        method: specResult.method || "",
+      };
+    }
+    return obj;
+  }, [nodes, B, preset, presets, mutLog, specResult]);
 
   const exportJSON = useMemo(() => presetToJSON(currentPreset), [currentPreset]);
 
@@ -1103,6 +1148,76 @@ export default function QuiverMutationApp() {
                 {importError && <span style={{ color:C.neg, fontSize:11 }}>✗ {importError}</span>}
                 {importNote && !importError && <span style={{ color:C.green, fontSize:11 }}>✓ {importNote}</span>}
               </div>
+            </div>
+
+            <div style={{ height:1, background:C.border }}/>
+
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:C.specgen, marginBottom:6, textTransform:"uppercase", letterSpacing:1 }}>Mutation sequence</div>
+              {mutLog.length === 0 ? (
+                <div style={{ fontSize:11, color:C.dim, fontStyle:"italic" }}>No mutations applied yet.</div>
+              ) : (
+                <div style={{ display:"grid", gridTemplateColumns:"60px 1fr auto", rowGap:6, columnGap:8, alignItems:"center" }}>
+                  <span style={{ fontSize:11, color:C.dim }}>0-based</span>
+                  <input readOnly value={mutLog.map(m => m.index).join(",")}
+                    onFocus={e => e.target.select()}
+                    style={{ width:"100%", boxSizing:"border-box", background:C.bg, color:C.text,
+                      border:`1px solid ${C.border}`, borderRadius:4, padding:"4px 6px", fontSize:12, fontFamily:mono }}/>
+                  <button onClick={async () => {
+                      try { await navigator.clipboard.writeText(mutLog.map(m => m.index).join(",")); setImportNote("0-based sequence copied"); setImportError(""); }
+                      catch (e) { setImportError("Clipboard error: " + e.message); }
+                    }}
+                    style={{ background:"transparent", color:C.dim, border:`1px solid ${C.border}`, borderRadius:4,
+                      padding:"3px 10px", cursor:"pointer", fontSize:11, fontFamily:mono }}>Copy</button>
+                  <span style={{ fontSize:11, color:C.dim }}>1-based</span>
+                  <input readOnly value={mutLog.map(m => m.index + 1).join(",")}
+                    onFocus={e => e.target.select()}
+                    style={{ width:"100%", boxSizing:"border-box", background:C.bg, color:C.text,
+                      border:`1px solid ${C.border}`, borderRadius:4, padding:"4px 6px", fontSize:12, fontFamily:mono }}/>
+                  <button onClick={async () => {
+                      try { await navigator.clipboard.writeText(mutLog.map(m => m.index + 1).join(",")); setImportNote("1-based sequence copied"); setImportError(""); }
+                      catch (e) { setImportError("Clipboard error: " + e.message); }
+                    }}
+                    style={{ background:"transparent", color:C.dim, border:`1px solid ${C.border}`, borderRadius:4,
+                      padding:"3px 10px", cursor:"pointer", fontSize:11, fontFamily:mono }}>Copy</button>
+                </div>
+              )}
+              {mutLog.length > 0 && (
+                <div style={{ fontSize:10, color:C.dim, marginTop:6 }}>
+                  {mutLog.length} mutation{mutLog.length !== 1 ? "s" : ""} applied. Charges-at-mutation are preserved in the JSON export below.
+                </div>
+              )}
+              {specResult && specResult.seq && specResult.seq.length > 0 && (
+                <div style={{ marginTop:10, padding:"8px 10px", background:"rgba(192,132,252,0.08)", border:`1px solid ${C.specgen}`, borderRadius:4 }}>
+                  <div style={{ fontSize:11, color:C.specgen, fontWeight:700, marginBottom:6 }}>
+                    Auto-found S ({specResult.method || "?"}, {specResult.seq.length} steps)
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"60px 1fr auto", rowGap:6, columnGap:8, alignItems:"center" }}>
+                    <span style={{ fontSize:11, color:C.dim }}>0-based</span>
+                    <input readOnly value={specResult.seq.join(",")}
+                      onFocus={e => e.target.select()}
+                      style={{ width:"100%", boxSizing:"border-box", background:C.bg, color:C.text,
+                        border:`1px solid ${C.border}`, borderRadius:4, padding:"4px 6px", fontSize:12, fontFamily:mono }}/>
+                    <button onClick={async () => {
+                        try { await navigator.clipboard.writeText(specResult.seq.join(",")); setImportNote("auto-found 0-based S copied"); setImportError(""); }
+                        catch (e) { setImportError("Clipboard error: " + e.message); }
+                      }}
+                      style={{ background:"transparent", color:C.dim, border:`1px solid ${C.border}`, borderRadius:4,
+                        padding:"3px 10px", cursor:"pointer", fontSize:11, fontFamily:mono }}>Copy</button>
+                    <span style={{ fontSize:11, color:C.dim }}>1-based</span>
+                    <input readOnly value={specResult.seq.map(k => k + 1).join(",")}
+                      onFocus={e => e.target.select()}
+                      style={{ width:"100%", boxSizing:"border-box", background:C.bg, color:C.text,
+                        border:`1px solid ${C.border}`, borderRadius:4, padding:"4px 6px", fontSize:12, fontFamily:mono }}/>
+                    <button onClick={async () => {
+                        try { await navigator.clipboard.writeText(specResult.seq.map(k => k + 1).join(",")); setImportNote("auto-found 1-based S copied"); setImportError(""); }
+                        catch (e) { setImportError("Clipboard error: " + e.message); }
+                      }}
+                      style={{ background:"transparent", color:C.dim, border:`1px solid ${C.border}`, borderRadius:4,
+                        padding:"3px 10px", cursor:"pointer", fontSize:11, fontFamily:mono }}>Copy</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div style={{ height:1, background:C.border }}/>
