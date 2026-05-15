@@ -47,7 +47,7 @@ const PRESETS = [
   // T_0 acts L-side vs left amalgam; T_2 acts R-side vs right amalgam;
   // the middle T_1 plays R-side toward the left row and L-side toward the right row.
   { name: "K=3 pentagon: 3× FG-K3 (Yin/Yin/Yin)", n: 7,
-    positions: [[200,350],[450,350],[700,350],[325,200],[325,500],[575,200],[575,500]],
+    positions: [[150,350],[450,350],[750,350],[300,200],[300,500],[600,200],[600,500]],
     frozen: [false,false,false,false,false,false,false],
     B: [[0,0,0,-1,1,0,0],[0,0,0,1,-1,-1,1],[0,0,0,0,0,1,-1],[1,-1,0,0,0,0,0],[-1,1,0,0,0,0,0],[0,1,-1,0,0,0,0],[0,-1,1,0,0,0,0]] },
   // Fan triangulation of a pentagon by three FG-K4 Yin triangles.
