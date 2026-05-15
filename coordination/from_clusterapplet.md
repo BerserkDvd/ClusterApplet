@@ -182,6 +182,29 @@ single extra state at the V_1 glue.
 Ready for the sibling session to feed into
 `BPSQuiver.verify_spectrum_generator`.
 
+## K=4 pentagon — VERIFIED spectrum generator (32 mutations) ✓
+
+Hand-derived in the applet on the FG K-subdivision K=4 pentagon (n=15,
+mutable-only). All 15 charges negate after the following sequence
+(recovered from the user's charge-by-charge mutation log).
+
+0-based node indices:
+
+```
+12, 14, 13, 12, 5, 4, 3, 5, 9, 11, 10, 9, 8, 7, 6, 13, 14, 12, 9, 11,
+10, 7, 2, 1, 0, 4, 3, 5, 11, 6, 14, 1
+```
+
+1-based labels:
+
+```
+13, 15, 14, 13, 6, 5, 4, 6, 10, 12, 11, 10, 9, 8, 7, 14, 15, 13, 10,
+12, 11, 8, 3, 2, 1, 5, 4, 6, 12, 7, 15, 2
+```
+
+Total: 32 BPS states. Ready for the sibling session to verify against
+`BPSQuiver.verify_spectrum_generator`.
+
 ## K=5 pentagon — VERIFIED spectrum generator (70 mutations) ✓
 
 Hand-derived in the applet on the FG K-subdivision K=5 pentagon (n=26,
