@@ -322,10 +322,12 @@ function findSpecGen(nodesInit, Binit, maxMs = 5000, origGensOverride = null) {
   const origGens = origGensOverride
     ? origGensOverride.map(c => [...c])
     : mutableIdx.map(i => [...nodesInit[i].charge]);
-  const negSet = new Set(origGens.map(c => c.map(x => -x).join(",")));
+  // Compare charges projected onto the mutable index subspace, so frozen
+  // boundary components don't block the match.
+  const negSet = new Set(origGens.map(c => mutableIdx.map(j => -c[j]).join(",")));
 
   function isDone(nodes) {
-    const curSet = new Set(mutableIdx.map(i => nodes[i].charge.join(",")));
+    const curSet = new Set(mutableIdx.map(i => mutableIdx.map(j => nodes[i].charge[j]).join(",")));
     if (curSet.size !== negSet.size) return false;
     for (const s of negSet) if (!curSet.has(s)) return false;
     return true;
@@ -797,11 +799,18 @@ export default function QuiverMutationApp() {
     const n = nodes.length;
     const mutableIdx = [];
     for (let i = 0; i < n; i++) if (!nodes[i].frozen) mutableIdx.push(i);
-    const negSet = new Set(mutableIdx.map(i => {
-      const init = Array.from({ length: n }, (_, j) => j === i ? -1 : 0);
-      return init.join(",");
-    }));
-    const curSet = new Set(mutableIdx.map(i => nodes[i].charge.join(",")));
+    if (mutableIdx.length === 0) return false;
+    // Project each mutable node's charge onto the mutable-index subspace and
+    // check that the multiset equals { -e_p : p = 0..|mutable|-1 } — i.e. the
+    // gauge charges are negated, frozen flavour components are ignored.
+    const M = mutableIdx.length;
+    const negSet = new Set();
+    for (let p = 0; p < M; p++) {
+      const v = Array(M).fill(0); v[p] = -1;
+      negSet.add(v.join(","));
+    }
+    const curSet = new Set(mutableIdx.map(i =>
+      mutableIdx.map(j => nodes[i].charge[j]).join(",")));
     if (curSet.size !== negSet.size) return false;
     for (const s of negSet) if (!curSet.has(s)) return false;
     return true;
