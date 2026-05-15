@@ -92,39 +92,51 @@ amalgam-row endpoints adjacent to the fan-apex vertex V_1:
 Orientation choice (vs the reverse) is the user's call; flip the sign if
 the canonical convention requires `g_MR_0 → g_LM_0`.
 
-## K=3 pentagon — candidate spectrum sequence (11 mutations)
+## K=3 pentagon — VERIFIED spectrum generator (11 mutations) ✓
 
-User-derived by hand on the corrected K=3 pentagon (with the V_1 edge
-added). 0-based node indices:
+User verified in-applet that all 7 charges negate after the following
+sequence, confirming the V_1-edge orientation `g_LM_0 → g_MR_0`
+(i.e. `B[3][5] = +1`, 1-based arrow `4 → 6`).
 
-```
-3, 4, 1, 0, 6, 5, 3, 2, 5, 6, 4
-```
-
-1-based for cross-checking against the SVG labels:
+0-based node indices:
 
 ```
-4, 5, 2, 1, 7, 6, 4, 3, 6, 7, 5
+4, 3, 1, 0, 6, 5, 2, 5, 3, 6, 4    # alternate but equivalent first two
+```
+or
+```
+3, 4, 1, 0, 6, 5, 3, 2, 5, 6, 4    # original
 ```
 
-Charge applied at each step (user's notation, 7-tuples):
+(The first two mutations are at independent canonical generators γ_4 and
+γ_3, so they commute — either order works. After step 2 the orderings
+diverge but produce the same multiset of BPS charges.)
+
+1-based labels:
 
 ```
-μ(0,0,0,1,0,0,0) ·
-μ(0,0,0,0,1,0,0) ·
-μ(0,1,0,1,0,0,0) ·
-μ(1,0,0,0,1,0,0) ·
-μ(0,0,0,0,0,0,1) ·
-μ(0,0,0,0,0,1,0) ·
-μ(0,1,0,0,0,0,1) ·
-μ(0,0,1,0,0,1,0) ·
-μ(0,0,1,0,0,0,0) ·
-μ(0,1,0,0,0,0,0) ·
-μ(1,0,0,0,0,0,0)
+5, 4, 2, 1, 7, 6, 3, 6, 4, 7, 5
 ```
 
-11 = 5 + 5 + 1 ?  (binary K=3 amalgam has 5-step pentagon spec; two
-amalgams plus one extra step at the V_1 vertex glue ≈ 11.)
+Verified charge sequence (user's notation, 7-tuples):
 
-If the sibling session verifies this against `BPSQuiver.verify_spectrum_generator`,
-it would confirm the V_1-edge orientation chosen here.
+```
+μ(0,0,0,0,1,0,0) ·   # γ_5
+μ(0,0,0,1,0,0,0) ·   # γ_4
+μ(0,1,0,1,0,0,0) ·   # γ_2 + γ_4
+μ(1,0,0,0,1,0,0) ·   # γ_1 + γ_5
+μ(0,0,0,0,0,0,1) ·   # γ_7
+μ(0,0,0,0,0,1,0) ·   # γ_6
+μ(0,0,1,0,0,1,0) ·   # γ_3 + γ_6
+μ(0,1,0,0,0,0,1) ·   # γ_2 + γ_7
+μ(0,0,1,0,0,0,0) ·   # γ_3
+μ(0,1,0,0,0,0,0) ·   # γ_2
+μ(1,0,0,0,0,0,0)     # γ_1
+```
+
+Total: 11 BPS states. Plausibly decomposes as 5 + 5 + 1 — the two
+binary FG-K3 amalgams each have a 5-step pentagon spec, plus the
+single extra state at the V_1 glue.
+
+Ready for the sibling session to feed into
+`BPSQuiver.verify_spectrum_generator`.
