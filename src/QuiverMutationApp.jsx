@@ -46,21 +46,19 @@ const PRESETS = [
   //        g12_0, g12_1 between T_1 and T_2.
   // T_0 acts L-side vs left amalgam; T_2 acts R-side vs right amalgam;
   // the middle T_1 plays R-side toward the left row and L-side toward the right row.
+  // Pentagon layout (sibling 2026-05-15): t_1..t_3 interior barycenters
+  // arranged on the lower row; g_0(e_i) at the fan-apex P_0 side, g_1(e_i)
+  // along the diagonal away from P_0. Cross-arrow B[3][5] = +1 at P_0.
   { name: "K=3 pentagon: 3× FG-K3 (Yin/Yin/Yin)", n: 7,
-    positions: [[150,350],[450,350],[750,350],[300,200],[300,500],[600,200],[600,500]],
+    positions: [[233,433],[400,433],[567,433],[350,267],[300,433],[450,267],[500,433]],
     frozen: [false,false,false,false,false,false,false],
     B: [[0,0,0,-1,1,0,0],[0,0,0,1,-1,-1,1],[0,0,0,0,0,1,-1],[1,-1,0,0,0,1,0],[-1,1,0,0,0,0,0],[0,1,-1,-1,0,0,0],[0,-1,1,0,0,0,0]] },
-  // Pentagon (fan triangulation) by 3 FG-K4 Yin triangles amalgamated along
-  // TWO DISTINCT pairs of edges: M's a=0 edge ↔ L's a=0 edge, and M's b=0 edge
-  // ↔ R's a=0 edge. The two amalgam edges of M share the c-vertex corner M_0,
-  // which sits at the fan apex V_1.
-  // Indices:  L_0..L_2 = 0..2,  M_0..M_2 = 3..5,  R_0..R_2 = 6..8,
-  //           g_LM_0..g_LM_2 = 9..11,  g_MR_0..g_MR_2 = 12..14.
-  // V_1-corner: L_0, M_0, R_0, g_LM_0, g_MR_0  all gather near the top apex.
-  { name: "K=4 pentagon: 3× FG-K4 (Yin/Yin/Yin)", n: 15,
-    positions: [[140,180],[200,310],[80,310],[400,180],[340,310],[460,310],[660,180],[600,310],[720,310],[270,130],[270,230],[270,360],[530,130],[530,230],[530,360]],
-    frozen: [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
-    B: [[0,-1,1,0,0,0,0,0,0,-1,1,0,0,0,0],[1,0,-1,0,0,0,0,0,0,0,-1,1,0,0,0],[-1,1,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,-1,1,0,0,0,0,1,-1,-1,1,0],[0,0,0,1,0,-1,0,0,0,1,-1,0,0,0,0],[0,0,0,-1,1,0,0,0,0,0,0,0,0,-1,1],[0,0,0,0,0,0,0,-1,1,0,0,0,0,1,-1],[0,0,0,0,0,0,1,0,-1,0,0,0,1,-1,0],[0,0,0,0,0,0,-1,1,0,0,0,0,0,0,0],[1,0,0,0,-1,0,0,0,0,0,0,0,1,0,0],[-1,1,0,-1,1,0,0,0,0,0,0,0,0,0,0],[0,-1,0,1,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,1,0,0,0,-1,0,-1,0,0,0,0,0],[0,0,0,-1,0,1,-1,1,0,0,0,0,0,0,0],[0,0,0,0,0,-1,1,0,0,0,0,0,0,0,0]] },
+  // K=4 / K=5 pentagons DEFERRED by the sibling (2026-05-15). The naive
+  // 3-triangle extension of fg_amalgamate.py reproduces a rotation bug
+  // (CROSS_ARROW_RULE.md): either non-planar anti-diagonal cross-arrows
+  // or a single apex cross-arrow whose spec fails to verify. Re-add once
+  // T_2's frame is sigma-rotated and the K-flip on e_2 is relabelled
+  // under sigma^{-1}.
   // Pure Yin triangles — single FG-K triangulation, no amalgam glue.
   // Nodes are T(K-3) internal cluster variables in lex order.
   { name: "FG-K3 Yin triangle", n: 1,
@@ -83,12 +81,12 @@ const PRESETS = [
   //              g_0=(0,0,2), g_1=(0,1,1), g_2=(0,2,0)
   // Predicted total spec length: 17 = (K-1)^2 + 2 K(K-1)(K-2)/6
   { name: "A₃ amalgam: 2× FG-K4 (Yin/Yin)", n: 9,
-    positions: [[300,200],[300,500],[150,350],[500,200],[500,500],[650,350],[400,200],[400,350],[400,500]],
+    positions: [[300,200],[300,500],[150,350],[500,500],[500,200],[650,350],[400,200],[400,350],[400,500]],
     frozen: [false,false,false,false,false,false,false,false,false],
     B: [[0,-1,1,0,0,0,-1,1,0],[1,0,-1,0,0,0,0,-1,1],[-1,1,0,0,0,0,0,0,0],[0,0,0,0,-1,1,0,1,-1],[0,0,0,1,0,-1,1,-1,0],[0,0,0,-1,1,0,0,0,0],[1,0,0,0,-1,0,0,0,0],[-1,1,0,-1,1,0,0,0,0],[0,-1,0,1,0,0,0,0,0]] },
   // Predicted total spec length: 36 = (K-1)^2 + 2 K(K-1)(K-2)/6
   { name: "A₄ amalgam: 2× FG-K5 (Yin/Yin)", n: 16,
-    positions: [[300,200],[300,350],[300,500],[150,200],[150,500],[0,350],[500,200],[500,350],[500,500],[650,200],[650,500],[800,350],[400,200],[400,300],[400,400],[400,500]],
+    positions: [[300,200],[300,350],[300,500],[150,200],[150,500],[0,350],[500,500],[500,350],[500,200],[650,500],[650,200],[800,350],[400,200],[400,300],[400,400],[400,500]],
     frozen: [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false],
     B: [[0,-1,0,1,0,0,0,0,0,0,0,0,-1,1,0,0],[1,0,-1,-1,1,0,0,0,0,0,0,0,0,-1,1,0],[0,1,0,0,-1,0,0,0,0,0,0,0,0,0,-1,1],[-1,1,0,0,-1,1,0,0,0,0,0,0,0,0,0,0],[0,-1,1,1,0,-1,0,0,0,0,0,0,0,0,0,0],[0,0,0,-1,1,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,-1,0,1,0,0,0,0,1,-1],[0,0,0,0,0,0,1,0,-1,-1,1,0,0,1,-1,0],[0,0,0,0,0,0,0,1,0,0,-1,0,1,-1,0,0],[0,0,0,0,0,0,-1,1,0,0,-1,1,0,0,0,0],[0,0,0,0,0,0,0,-1,1,1,0,-1,0,0,0,0],[0,0,0,0,0,0,0,0,0,-1,1,0,0,0,0,0],[1,0,0,0,0,0,0,0,-1,0,0,0,0,0,0,0],[-1,1,0,0,0,0,0,-1,1,0,0,0,0,0,0,0],[0,-1,1,0,0,0,-1,1,0,0,0,0,0,0,0,0],[0,0,-1,0,0,0,1,0,0,0,0,0,0,0,0,0]] },
   // Index order for L (lex T(3)):
