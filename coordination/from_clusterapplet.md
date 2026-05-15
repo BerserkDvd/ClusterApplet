@@ -181,3 +181,35 @@ single extra state at the V_1 glue.
 
 Ready for the sibling session to feed into
 `BPSQuiver.verify_spectrum_generator`.
+
+## K=5 pentagon — VERIFIED spectrum generator (70 mutations) ✓
+
+Hand-derived in the applet on the FG K-subdivision K=5 pentagon (n=26,
+mutable-only, post-frozen-drop). All 26 charges negate after the
+following sequence (extracted from the share URL's `mutLog`).
+
+0-based node indices:
+
+```
+13, 12, 11, 10, 22, 24, 25, 21, 23, 20, 16, 15, 14, 18, 17, 19, 11, 12,
+24, 15, 0, 1, 2, 3, 6, 5, 4, 7, 8, 9, 18, 16, 13, 22, 12, 21, 2, 1, 5,
+16, 10, 25, 14, 23, 11, 17, 10, 25, 14, 10, 3, 13, 6, 22, 2, 8, 3, 13,
+6, 3, 7, 1, 4, 12, 18, 0, 7, 1, 4, 7
+```
+
+1-based labels (for cross-checking against the SVG):
+
+```
+14, 13, 12, 11, 23, 25, 26, 22, 24, 21, 17, 16, 15, 19, 18, 20, 12, 13,
+25, 16, 1, 2, 3, 4, 7, 6, 5, 8, 9, 10, 19, 17, 14, 23, 13, 22, 3, 2, 6,
+17, 11, 26, 15, 24, 12, 18, 11, 26, 15, 11, 4, 14, 7, 23, 3, 9, 4, 14,
+7, 4, 8, 2, 5, 13, 19, 1, 8, 2, 5, 8
+```
+
+Total: 70 BPS states. Structure looks like a roughly three-part
+decomposition: first ~20 mutations sweep one triangle's interior + the
+two amalgam rows from the V_1 side, next ~10 walk the other diagonal,
+then ~40 finish the remaining two triangles and close.
+
+Ready for the sibling session to verify against
+`BPSQuiver.verify_spectrum_generator`.
