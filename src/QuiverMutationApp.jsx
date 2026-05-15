@@ -251,11 +251,13 @@ function chargeKey(nodes) {
   return nodes.map(nd => nd.charge.join(",")).join("|");
 }
 
-function findSpecGen(nodesInit, Binit, maxMs = 5000) {
+function findSpecGen(nodesInit, Binit, maxMs = 5000, origGensOverride = null) {
   const n = Binit.length;
   const mutableIdx = [];
   for (let i = 0; i < n; i++) if (!nodesInit[i].frozen) mutableIdx.push(i);
-  const origGens = mutableIdx.map(i => [...nodesInit[i].charge]);
+  const origGens = origGensOverride
+    ? origGensOverride.map(c => [...c])
+    : mutableIdx.map(i => [...nodesInit[i].charge]);
   const negSet = new Set(origGens.map(c => c.map(x => -x).join(",")));
 
   function isDone(nodes) {
@@ -406,6 +408,7 @@ export default function QuiverMutationApp() {
   const wasDrag = useRef(false);
   const nextId = useRef(100);
   const hashLoadedRef = useRef(false);
+  const initialChargesRef = useRef(init0.nodes.map(nd => [...nd.charge]));
   const [svgSize, setSvgSize] = useState({ w: 800, h: 500 });
 
   const svgRefCb = useCallback((el) => {
@@ -428,6 +431,7 @@ export default function QuiverMutationApp() {
     setFlash(null);
     setEditingCharge(null); setDrawFrom(null); setDrawMouse(null);
     setSpecResult(null); setSpecStep(-1);
+    initialChargesRef.current = init.nodes.map(nd => [...nd.charge]);
   }, []);
 
   const loadPreset = useCallback((idx) => {
@@ -565,6 +569,34 @@ export default function QuiverMutationApp() {
     // Use current quiver state (user may have already mutated)
     setTimeout(() => {
       const result = findSpecGen(nodes, B, 5000);
+      if (result) {
+        setSpecResult(result);
+        setSpecStep(0);
+      } else {
+        setSpecResult(false);
+        setSpecStep(-1);
+      }
+      setSearching(false);
+    }, 50);
+  }, [nodes, B]);
+
+  const doCompleteSpecGen = useCallback(() => {
+    if (nodes.length === 0) return;
+    const snap = initialChargesRef.current;
+    if (!snap || snap.length !== nodes.length
+        || (nodes[0] && snap[0] && snap[0].length !== nodes[0].charge.length)) {
+      setSpecResult(false); setSpecStep(-1);
+      return;
+    }
+    const mutableIdx = [];
+    for (let i = 0; i < nodes.length; i++) if (!nodes[i].frozen) mutableIdx.push(i);
+    const origGens = mutableIdx.map(i => [...snap[i]]);
+    setMode("mutate");
+    setDrawFrom(null); setDrawMouse(null); setEditingCharge(null);
+    setSearching(true);
+    setSpecResult(null); setSpecStep(-1);
+    setTimeout(() => {
+      const result = findSpecGen(nodes, B, 5000, origGens);
       if (result) {
         setSpecResult(result);
         setSpecStep(0);
@@ -738,6 +770,13 @@ export default function QuiverMutationApp() {
             border: `1px solid ${searching ? C.border : C.specgen}`, borderRadius: 4,
             padding: "4px 12px", cursor: searching ? "wait" : "pointer", fontSize: 12, fontFamily: mono, fontWeight: 700 }}>
           {searching ? "Searching…" : "Find S"}
+        </button>
+        <button onClick={doCompleteSpecGen} disabled={searching || nodes.length === 0}
+          title="Complete S from the current state, treating preset-load charges as the original generators."
+          style={{ background: "transparent", color: searching ? C.dim : C.specgen,
+            border: `1px solid ${C.specgen}`, borderRadius: 4,
+            padding: "4px 12px", cursor: searching ? "wait" : "pointer", fontSize: 12, fontFamily: mono, fontWeight: 700 }}>
+          Complete S
         </button>
         <div style={{ width:1, height:20, background:C.border, margin:"0 4px" }} />
         <button onClick={() => { setShowShare(true); setImportError(""); setImportNote(""); }}
