@@ -39,6 +39,17 @@ const PRESETS = [
     positions: [[300,350],[500,350],[400,200],[400,500]],
     frozen: [false,false,false,false],
     B: [[0,0,-1,1],[0,0,1,-1],[1,-1,0,0],[-1,1,0,0]] },
+  // Fan triangulation of a pentagon by three FG-K3 Yin triangles.
+  // Nodes: T_0, T_1, T_2 (single interior node per triangle, since T(K-3)=T(0)={•})
+  //        then two amalgam rows of K-1=2 nodes each:
+  //        g01_0, g01_1 between T_0 and T_1,
+  //        g12_0, g12_1 between T_1 and T_2.
+  // T_0 acts L-side vs left amalgam; T_2 acts R-side vs right amalgam;
+  // the middle T_1 plays R-side toward the left row and L-side toward the right row.
+  { name: "K=3 pentagon: 3× FG-K3 (Yin/Yin/Yin)", n: 7,
+    positions: [[200,350],[450,350],[700,350],[325,200],[325,500],[575,200],[575,500]],
+    frozen: [false,false,false,false,false,false,false],
+    B: [[0,0,0,-1,1,0,0],[0,0,0,1,-1,-1,1],[0,0,0,0,0,1,-1],[1,-1,0,0,0,0,0],[-1,1,0,0,0,0,0],[0,1,-1,0,0,0,0],[0,-1,1,0,0,0,0]] },
   // Pure Yin triangles — single FG-K triangulation, no amalgam glue.
   // Nodes are T(K-3) internal cluster variables in lex order.
   { name: "FG-K3 Yin triangle", n: 1,
