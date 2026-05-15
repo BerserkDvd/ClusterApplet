@@ -41,20 +41,61 @@ URL and the user gets the quiver instantly.
 
 ### Path A — hardcoded amalgam presets — COMPLETE
 
-All three amalgam presets are now in the dropdown:
+Available from the dropdown (in addition to the built-in physics examples):
 
-- `A₂ amalgam: 2× FG-K3 (Yin/Yin)`     n=4
-- `A₃ amalgam: 2× FG-K4 (Yin/Yin)`     n=9   (predicted spec length 17)
-- `A₄ amalgam: 2× FG-K5 (Yin/Yin)`     n=16  (predicted spec length 36)
+**Binary amalgams (2× FG-K_K Yin/Yin, K-1 amalgam-row nodes):**
 
-Plus the pre-amalgamation pure Yin triangles for direct comparison:
+- `A₂ amalgam: 2× FG-K3 (Yin/Yin)`              n=4    (predicted spec 5)
+- `A₃ amalgam: 2× FG-K4 (Yin/Yin)`              n=9    (predicted spec 17)
+- `A₄ amalgam: 2× FG-K5 (Yin/Yin)`              n=16   (predicted spec 36)
+- `A₅ amalgam: 2× FG-K6 (Yin/Yin)`              n=25   (predicted spec 65)
 
-- `FG-K3 Yin triangle`                 n=1   (single node)
-- `FG-K4 Yin triangle`                 n=3   (oriented 3-cycle on T(1))
-- `FG-K5 Yin triangle`                 n=6   (hex on T(2))
+**Pure Yin triangles (T(K−3) internal quiver, no amalgam):**
 
-All three B matrices verified antisymmetric integer skew-symmetric of
-correct dimension. `npm run build` passes.
+- `FG-K3 Yin triangle`                          n=1    (single node)
+- `FG-K4 Yin triangle`                          n=3    (oriented 3-cycle on T(1))
+- `FG-K5 Yin triangle`                          n=6    (hex on T(2))
+
+**Pentagon (fan) amalgams (3× FG-K_K Yin, two pairs of glued edges):**
+
+- `K=3 pentagon: 3× FG-K3 (Yin/Yin/Yin)`        n=7    (verified spec 11)
+- `K=4 pentagon: 3× FG-K4 (Yin/Yin/Yin)`        n=15   (geometric construction)
+
+Pentagons include the V_1-vertex edge `g_LM_0 → g_MR_0` between the
+amalgam-row endpoints coincident at the fan apex.
+
+All B matrices verified antisymmetric, integer, of correct dimension.
+K=6 amalgam derived programmatically from a constructor that reproduces
+K=3/4/5 exactly. K=4 pentagon uses M's a=0 ↔ L's a=0 and M's b=0 ↔ R's a=0
+(distinct edges of M sharing corner M_0 at V_1).
+
+## URL share template
+
+The sibling Cluster session can emit one-click visualization links of the form
+
+```
+https://berserkdvd.github.io/ClusterApplet/#<urlencoded-JSON>
+```
+
+where `<urlencoded-JSON>` is `encodeURIComponent(JSON.stringify(preset))` with
+the preset shape
+
+```json
+{
+  "name": "<descriptive>",
+  "n": <integer>,
+  "positions": [[x, y], ...],
+  "frozen": [false, ...],
+  "B": [[0, ...], ...],
+  "charges": [[1,0,...], ...],          // optional; default canonical basis δ_ij
+  "mutLog": [{"index": k, "charge": [...]}, ...],   // optional; restores Mutation Sequence panel
+  "spec": {"seq": [...], "charges": [[...]], "method": "..."}  // optional; auto-found S
+}
+```
+
+Opening such a URL auto-imports the quiver and appends it to the preset
+dropdown as the active selection. `⇄ Share → Copy shareable URL` in the
+applet emits the same form for round-trips back to the sibling session.
 
 ## Quick-test recipe (for the user)
 
