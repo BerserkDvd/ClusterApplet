@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import {
   R, C, PRESETS,
   dc, makeInitial, parsePresetText, presetToJSON, buildShareURL,
-  mutateQuiver, findSpecGen,
+  mutateQuiver, findSpecGen, inPositiveCone,
   fmtVec, fmtCharge, fmtChargeNeg, getEdges, nodeAt,
 } from "./quiver-core";
 import { Celebration } from "./Celebration";
@@ -37,11 +37,12 @@ export default function MobileQuiverApp() {
   const [vbSize, setVbSize] = useState({ w: 900, h: 700 });
   const [celebKey, setCelebKey] = useState(0);
   const [celebData, setCelebData] = useState({ count: 0, method: "" });
+  const [baselineGens, setBaselineGens] = useState(init0.nodes.map(nd => [...nd.charge]));
+  const [showAllowed, setShowAllowed] = useState(false);
 
   const svgRef = useRef(null);
   const nextId = useRef(100);
   const hashLoadedRef = useRef(false);
-  const initialChargesRef = useRef(init0.nodes.map(nd => [...nd.charge]));
   const gesture = useRef(null);   // active gesture state
   const longPressTimer = useRef(null);
   const pointers = useRef(new Map());
@@ -79,7 +80,7 @@ export default function MobileQuiverApp() {
     setFlash(null);
     setDrawFrom(null); setDrawTo(null);
     setSpecResult(null); setSpecStep(-1);
-    initialChargesRef.current = init.nodes.map(nd => [...nd.charge]);
+    setBaselineGens(init.nodes.map(nd => [...nd.charge]));
     autoFit(init.nodes);
   }, [autoFit]);
 
@@ -221,7 +222,7 @@ export default function MobileQuiverApp() {
 
   const doCompleteSpecGen = useCallback(() => {
     if (nodes.length === 0) return;
-    const snap = initialChargesRef.current;
+    const snap = baselineGens;
     if (!snap || snap.length !== nodes.length
         || (nodes[0] && snap[0] && snap[0].length !== nodes[0].charge.length)) {
       setSpecResult(false); setSpecStep(-1);
@@ -240,7 +241,16 @@ export default function MobileQuiverApp() {
       else { setSpecResult(false); setSpecStep(-1); }
       setSearching(false);
     }, 50);
-  }, [nodes, B]);
+  }, [nodes, B, baselineGens]);
+
+  const rebaseBaseline = useCallback(() => {
+    if (nodes.length === 0) return;
+    setBaselineGens(nodes.map(nd => [...nd.charge]));
+    setMutLog([]);
+    setHistory([]);
+    setSpecResult(null); setSpecStep(-1);
+    showToast("Baseline rebased");
+  }, [nodes, showToast]);
 
   // ── Share / Import helpers ──
   const currentPreset = useMemo(() => {
@@ -521,6 +531,18 @@ export default function MobileQuiverApp() {
   // ── Derived ──
   const edges = useMemo(() => getEdges(nodes, B), [nodes, B]);
 
+  const allowedFlags = useMemo(() => {
+    if (!showAllowed || !baselineGens) return null;
+    const n = nodes.length;
+    if (baselineGens.length !== n) return null;
+    for (let i = 0; i < n; i++) {
+      if (!Array.isArray(baselineGens[i]) || baselineGens[i].length !== n) return null;
+    }
+    const mutGens = [];
+    for (let i = 0; i < n; i++) if (!nodes[i].frozen) mutGens.push(baselineGens[i]);
+    return nodes.map(nd => nd.frozen ? null : inPositiveCone(nd.charge, mutGens));
+  }, [showAllowed, baselineGens, nodes]);
+
   const guidedNode = (specResult && specResult.seq && specStep >= 0 && specStep < specResult.seq.length)
     ? specResult.seq[specStep] : -1;
 
@@ -647,8 +669,14 @@ export default function MobileQuiverApp() {
               const isF = flash === i;
               const isSource = drawFrom === i;
               const isGuided = guidedNode === i;
+              const allowed = allowedFlags ? allowedFlags[i] : null;
               return (
                 <g key={nd.id}>
+                  {allowed !== null && !isGuided && (
+                    <circle cx={nd.x} cy={nd.y} r={R+4} fill="none"
+                      stroke={allowed ? C.green : C.neg} strokeWidth={2.8}
+                      opacity={0.85} filter="url(#m-glow)"/>
+                  )}
                   {isGuided && !isF && (
                     <circle cx={nd.x} cy={nd.y} r={R+8} fill="none"
                       stroke={C.specgen} strokeWidth={2.5} opacity={0.7} filter="url(#m-glow)">
@@ -657,7 +685,7 @@ export default function MobileQuiverApp() {
                     </circle>
                   )}
                   {(isF || isSource) && !isGuided && (
-                    <circle cx={nd.x} cy={nd.y} r={R+6} fill="none"
+                    <circle cx={nd.x} cy={nd.y} r={R+(allowed!==null?10:6)} fill="none"
                       stroke={isF ? C.mutFlash : C.drawArrow} strokeWidth={2}
                       opacity={isF ? 0.8 : 0.5} filter={isF ? "url(#m-mutGlow)" : "url(#m-glow)"}/>
                   )}
@@ -771,6 +799,18 @@ export default function MobileQuiverApp() {
                 disabled={searching || nodes.length===0}
                 style={{ color: C.specgen, borderColor: C.specgen }}>
                 Complete S
+              </MenuBtn>
+              <MenuBtn onClick={() => { rebaseBaseline(); setActiveSheet(null); }}
+                disabled={!nodes.length}
+                style={{ color: C.specgen, borderColor: C.specgen, borderStyle: "dashed" }}>
+                ⟲ Rebase baseline to current state
+              </MenuBtn>
+              <MenuBtn onClick={() => setShowAllowed(v => !v)}
+                disabled={!nodes.length}
+                style={{ color: showAllowed ? C.green : C.text,
+                  borderColor: showAllowed ? C.green : C.border,
+                  background: showAllowed ? "rgba(52,211,153,0.08)" : "transparent" }}>
+                {showAllowed ? "✓ " : ""}Color nodes by allowed mutations
               </MenuBtn>
               <MenuBtn onClick={() => canonicalizeCharges()}
                 disabled={!nodes.length}>
@@ -1017,6 +1057,30 @@ export default function MobileQuiverApp() {
                     cursor: searching ? "wait" : "pointer" }}>
                   Complete S
                 </button>
+                <button onClick={rebaseBaseline} disabled={nodes.length === 0}
+                  title="Use the current state as the new baseline for Complete S and the allowed-mutation coloring."
+                  style={{ background:"transparent", color: C.specgen,
+                    border:`1px dashed ${C.specgen}`, borderRadius:6,
+                    padding:"6px 14px", fontSize:13, fontFamily:MONO, fontWeight:700,
+                    cursor: nodes.length ? "pointer" : "default" }}>
+                  ⟲ Rebase
+                </button>
+              </div>
+              <label style={{ marginTop:12, display:"flex", alignItems:"center", gap:8,
+                padding:"8px 10px",
+                background: showAllowed ? "rgba(52,211,153,0.08)" : "transparent",
+                border:`1px solid ${C.border}`, borderRadius:6,
+                cursor:"pointer", fontSize:12, color:C.dim, fontFamily:MONO }}>
+                <input type="checkbox" checked={showAllowed} onChange={e => setShowAllowed(e.target.checked)}
+                  style={{ accentColor: C.green, width:18, height:18 }}/>
+                <span style={{ color: showAllowed ? C.green : C.dim, fontWeight:600 }}>
+                  Color nodes by allowed mutations
+                </span>
+              </label>
+              <div style={{ marginTop:6, fontSize:10, color:C.dim, lineHeight:1.5 }}>
+                When on: <span style={{ color:C.green }}>green</span> = node's charge is in the
+                positive cone of the baseline (a valid next step toward S);{" "}
+                <span style={{ color:C.neg }}>red</span> = it has left the cone (mutating would back out).
               </div>
             </div>
           )}
