@@ -142,8 +142,16 @@ export default function MobileQuiverApp() {
       setCelebKey(c => c + 1);
     }
     if (specResult && specResult.seq && specStep >= 0 && specStep < specResult.seq.length) {
-      if (k === specResult.seq[specStep]) setSpecStep(specStep + 1);
-      else { setSpecResult(null); setSpecStep(-1); }
+      if (k === specResult.seq[specStep]) {
+        const next = specStep + 1;
+        setSpecStep(next);
+        if (next === specResult.seq.length) {
+          // User just landed the final guided mutation — celebrate.
+          const total = specResult.charges ? specResult.charges.length : specResult.seq.length;
+          setCelebData({ count: total, method: "completed by hand" });
+          setCelebKey(c => c + 1);
+        }
+      } else { setSpecResult(null); setSpecStep(-1); }
     } else if (specResult && specResult.seq && specStep >= specResult.seq.length) {
       setSpecResult(null); setSpecStep(-1);
     } else {
