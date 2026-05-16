@@ -429,8 +429,20 @@ export default function QuiverMutationApp() {
           ⇄ Share
         </button>
         <div style={{ flex:1 }} />
-        <a href={`?mobile=1${typeof window !== "undefined" ? window.location.hash : ""}`}
-          title="Open the mobile-optimized version (touch UI, pinch/zoom, slide-up sheets)"
+        <a href="?mobile=1"
+          onClick={(e) => {
+            // Rebuild the share URL from the current (possibly edited) state so the
+            // mobile view opens with whatever the user is looking at right now.
+            e.preventDefault();
+            try {
+              const u = new URL(buildShareURL(currentPreset));
+              u.searchParams.set("mobile", "1");
+              window.location.href = u.toString();
+            } catch {
+              window.location.href = `?mobile=1${window.location.hash || ""}`;
+            }
+          }}
+          title="Open the mobile-optimized version (touch UI, pinch/zoom, slide-up sheets). Preserves current state."
           style={{ color: C.dim, fontSize: 11, fontFamily: mono, textDecoration: "none",
             border: `1px solid ${C.border}`, borderRadius: 4, padding: "3px 8px" }}>
           Mobile ↗

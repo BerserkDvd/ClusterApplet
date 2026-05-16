@@ -543,10 +543,18 @@ export default function MobileQuiverApp() {
   }
 
   const switchToDesktop = useCallback(() => {
-    const u = new URL(window.location.href);
-    u.searchParams.set("mobile", "0");
-    window.location.href = u.toString();
-  }, []);
+    // Rebuild the share URL from current state so the desktop view opens with whatever
+    // is on screen right now (mutations, edits, etc.), not just the originally imported preset.
+    try {
+      const u = new URL(buildShareURL(currentPreset));
+      u.searchParams.set("mobile", "0");
+      window.location.href = u.toString();
+    } catch {
+      const u = new URL(window.location.href);
+      u.searchParams.set("mobile", "0");
+      window.location.href = u.toString();
+    }
+  }, [currentPreset]);
 
   const resetView = useCallback(() => autoFit(nodes), [autoFit, nodes]);
 
