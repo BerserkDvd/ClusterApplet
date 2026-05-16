@@ -112,7 +112,14 @@ export default function QuiverMutationApp() {
     // Guided mode: advance if correct node, exit if wrong
     if (specResult && specResult.seq && specStep >= 0 && specStep < specResult.seq.length) {
       if (k === specResult.seq[specStep]) {
-        setSpecStep(specStep + 1); // goes to total when done
+        const next = specStep + 1;
+        setSpecStep(next);
+        if (next === specResult.seq.length) {
+          // User just landed the final guided mutation — celebrate.
+          const total = specResult.charges ? specResult.charges.length : specResult.seq.length;
+          setCelebData({ count: total, method: "completed by hand" });
+          setCelebKey(c => c + 1);
+        }
       } else {
         setSpecResult(null); setSpecStep(-1);
       }
