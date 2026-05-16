@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { R, AH, C, PRESETS, dc, makeInitial, parsePresetText, presetToJSON, buildShareURL, mutateQuiver, findSpecGen, fmtVec, fmtCharge, fmtChargeNeg, getEdges, svgPt, nodeAt } from "./quiver-core";
+import { Celebration } from "./Celebration";
 
 export default function QuiverMutationApp() {
   const [presets, setPresets] = useState(PRESETS);
@@ -17,6 +18,8 @@ export default function QuiverMutationApp() {
   const [drawFrom, setDrawFrom] = useState(null);
   const [drawMouse, setDrawMouse] = useState(null);
   const [specResult, setSpecResult] = useState(null);
+  const [celebKey, setCelebKey] = useState(0);
+  const [celebData, setCelebData] = useState({ count: 0, method: "" });
   const [specStep, setSpecStep] = useState(-1); // -1 = not guided, 0..n = current step
   const [searching, setSearching] = useState(false);
   const [showShare, setShowShare] = useState(false);
@@ -84,6 +87,14 @@ export default function QuiverMutationApp() {
       console.warn("URL-hash preset failed to load:", e.message);
     }
   }, [importPreset]);
+
+  // Celebrate when a spectrum-generator is discovered.
+  useEffect(() => {
+    if (specResult && specResult.charges) {
+      setCelebData({ count: specResult.charges.length, method: specResult.method || "" });
+      setCelebKey(k => k + 1);
+    }
+  }, [specResult]);
 
   const pushHistory = useCallback(() => {
     setHistory(h => [...h, { nodes: dc(nodes), B: dc(B), mutLog: dc(mutLog) }]);
@@ -723,6 +734,8 @@ export default function QuiverMutationApp() {
           </div>
         </div>
       </div>
+
+      <Celebration trigger={celebKey} count={celebData.count} method={celebData.method} />
 
       {showShare && (
         <div onClick={() => setShowShare(false)}
