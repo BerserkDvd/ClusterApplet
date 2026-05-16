@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { R, AH, C, PRESETS, dc, makeInitial, parsePresetText, presetToJSON, buildShareURL, mutateQuiver, findSpecGen, fmtVec, fmtCharge, fmtChargeNeg, getEdges, svgPt, nodeAt } from "./quiver-core";
+import { R, AH, C, PRESETS, dc, makeInitial, parsePresetText, presetToJSON, buildShareURL, mutateQuiver, findSpecGen, fmtVec, fmtCharge, fmtChargeNeg, getEdges, svgPt, nodeAt, inPositiveCone } from "./quiver-core";
 import { Celebration } from "./Celebration";
 
 export default function QuiverMutationApp() {
@@ -31,7 +31,8 @@ export default function QuiverMutationApp() {
   const wasDrag = useRef(false);
   const nextId = useRef(100);
   const hashLoadedRef = useRef(false);
-  const initialChargesRef = useRef(init0.nodes.map(nd => [...nd.charge]));
+  const [baselineGens, setBaselineGens] = useState(init0.nodes.map(nd => [...nd.charge]));
+  const [showAllowed, setShowAllowed] = useState(false);
   const [svgSize, setSvgSize] = useState({ w: 800, h: 500 });
 
   const svgRefCb = useCallback((el) => {
@@ -57,7 +58,7 @@ export default function QuiverMutationApp() {
     setFlash(null);
     setEditingCharge(null); setDrawFrom(null); setDrawMouse(null);
     setSpecResult(null); setSpecStep(-1);
-    initialChargesRef.current = init.nodes.map(nd => [...nd.charge]);
+    setBaselineGens(init.nodes.map(nd => [...nd.charge]));
   }, []);
 
   const loadPreset = useCallback((idx) => {
@@ -216,7 +217,7 @@ export default function QuiverMutationApp() {
 
   const doCompleteSpecGen = useCallback(() => {
     if (nodes.length === 0) return;
-    const snap = initialChargesRef.current;
+    const snap = baselineGens;
     if (!snap || snap.length !== nodes.length
         || (nodes[0] && snap[0] && snap[0].length !== nodes[0].charge.length)) {
       setSpecResult(false); setSpecStep(-1);
@@ -240,7 +241,15 @@ export default function QuiverMutationApp() {
       }
       setSearching(false);
     }, 50);
-  }, [nodes, B]);
+  }, [nodes, B, baselineGens]);
+
+  const rebaseBaseline = useCallback(() => {
+    if (nodes.length === 0) return;
+    setBaselineGens(nodes.map(nd => [...nd.charge]));
+    setMutLog([]);
+    setHistory([]);
+    setSpecResult(null); setSpecStep(-1);
+  }, [nodes]);
 
   // ── Share / Import helpers ──
   const currentPreset = useMemo(() => {
@@ -357,6 +366,22 @@ export default function QuiverMutationApp() {
 
   const edges = getEdges(nodes, B);
   const mono = "'Menlo','Consolas','Monaco',monospace";
+
+  // Per-node "allowed for spec-gen" flag: true if node's charge is still in the
+  // positive cone of the (mutable) baseline generators. null = not applicable
+  // (frozen, baseline dim mismatch, or feature off).
+  const allowedFlags = useMemo(() => {
+    if (!showAllowed || !baselineGens) return null;
+    const n = nodes.length;
+    if (baselineGens.length !== n) return null;
+    for (let i = 0; i < n; i++) {
+      if (!Array.isArray(baselineGens[i]) || baselineGens[i].length !== n) return null;
+    }
+    const mutGens = [];
+    for (let i = 0; i < n; i++) if (!nodes[i].frozen) mutGens.push(baselineGens[i]);
+    return nodes.map(nd => nd.frozen ? null : inPositiveCone(nd.charge, mutGens));
+  }, [showAllowed, baselineGens, nodes]);
+
   const guidedNode = (specResult && specResult.seq && specStep >= 0 && specStep < specResult.seq.length)
     ? specResult.seq[specStep] : -1;
 
@@ -426,12 +451,27 @@ export default function QuiverMutationApp() {
           {searching ? "Searching…" : "Find S"}
         </button>
         <button onClick={doCompleteSpecGen} disabled={searching || nodes.length === 0}
-          title="Complete S from the current state, treating preset-load charges as the original generators."
+          title="Complete S from the current state, treating the current baseline charges as the original generators."
           style={{ background: "transparent", color: searching ? C.dim : C.specgen,
             border: `1px solid ${C.specgen}`, borderRadius: 4,
             padding: "4px 12px", cursor: searching ? "wait" : "pointer", fontSize: 12, fontFamily: mono, fontWeight: 700 }}>
           Complete S
         </button>
+        <button onClick={rebaseBaseline} disabled={nodes.length === 0}
+          title="Set the current state as the new baseline. Future Complete S searches and the allowed-mutation coloring use these charges as the original generators."
+          style={{ background: "transparent", color: C.specgen,
+            border: `1px dashed ${C.specgen}`, borderRadius: 4,
+            padding: "4px 12px", cursor: nodes.length ? "pointer" : "default", fontSize: 12, fontFamily: mono, fontWeight: 700 }}>
+          ⟲ Rebase
+        </button>
+        <label title="Color mutable nodes by whether their charge is in the positive cone of the baseline (green = allowed next step toward S; red = mutating would back out)."
+          style={{ display:"inline-flex", alignItems:"center", gap:5, color:C.dim, fontSize:11, fontFamily:mono,
+            cursor:"pointer", padding:"3px 8px", border:`1px solid ${C.border}`, borderRadius:4,
+            background: showAllowed ? "rgba(52,211,153,0.08)" : "transparent" }}>
+          <input type="checkbox" checked={showAllowed} onChange={e => setShowAllowed(e.target.checked)}
+            style={{ accentColor: C.green, cursor:"pointer" }}/>
+          <span style={{ color: showAllowed ? C.green : C.dim }}>🟢 Allowed</span>
+        </label>
         <div style={{ width:1, height:20, background:C.border, margin:"0 4px" }} />
         <button onClick={() => { setShowShare(true); setImportError(""); setImportNote(""); }}
           style={{ background: "transparent", color: C.accent,
@@ -509,6 +549,7 @@ export default function QuiverMutationApp() {
               const isF = flash===i;
               const isSource = drawFrom===i;
               const isGuided = guidedNode === i;
+              const allowed = allowedFlags ? allowedFlags[i] : null;
               const handleNodeClick = (e) => {
                 if (wasDrag.current) { wasDrag.current = false; return; }
                 if (mode === "mutate" && !nd.frozen) {
@@ -523,6 +564,11 @@ export default function QuiverMutationApp() {
                   onMouseLeave={() => { if (mode==="mutate") setHovered(null); }}
                   onClick={handleNodeClick}
                   onContextMenu={e => onNodeContext(e, i)}>
+                  {allowed !== null && !isGuided && (
+                    <circle cx={nd.x} cy={nd.y} r={R+4} fill="none"
+                      stroke={allowed ? C.green : C.neg} strokeWidth={2.5}
+                      opacity={0.85} filter="url(#glow)"/>
+                  )}
                   {isGuided && !isF && (
                     <circle cx={nd.x} cy={nd.y} r={R+8} fill="none"
                       stroke={C.specgen} strokeWidth={2.5} opacity={0.7} filter="url(#glow)">
@@ -530,7 +576,7 @@ export default function QuiverMutationApp() {
                       <animate attributeName="opacity" values="0.7;0.3;0.7" dur="1.5s" repeatCount="indefinite"/>
                     </circle>
                   )}
-                  {(isH||isF||isSource) && !isGuided && <circle cx={nd.x} cy={nd.y} r={R+6} fill="none"
+                  {(isH||isF||isSource) && !isGuided && <circle cx={nd.x} cy={nd.y} r={R+(allowed!==null?10:6)} fill="none"
                     stroke={isF?C.mutFlash:(isSource?C.drawArrow:C.hover)} strokeWidth={2}
                     opacity={isF?0.8:0.5} filter={isF?"url(#mutGlow)":"url(#glow)"}/>}
                   <circle cx={nd.x} cy={nd.y} r={R}
