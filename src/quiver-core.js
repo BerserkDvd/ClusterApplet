@@ -444,3 +444,25 @@ export function nodeAt(nodes, x, y, r = R) {
   }
   return -1;
 }
+
+// True iff the multiset of mutable-node charges, projected onto the mutable-index
+// subspace, equals { -e_p : p = 0..|mutable|-1 } — i.e. every gauge charge has
+// been negated and frozen flavour components are ignored. Same test used by the
+// in-render banner and by the spec-gen "isDone" check.
+export function isAllNegated(nodes) {
+  if (!nodes || nodes.length === 0) return false;
+  const mutableIdx = [];
+  for (let i = 0; i < nodes.length; i++) if (!nodes[i].frozen) mutableIdx.push(i);
+  if (mutableIdx.length === 0) return false;
+  const M = mutableIdx.length;
+  const negSet = new Set();
+  for (let p = 0; p < M; p++) {
+    const v = Array(M).fill(0); v[p] = -1;
+    negSet.add(v.join(","));
+  }
+  const curSet = new Set(mutableIdx.map(i =>
+    mutableIdx.map(j => nodes[i].charge[j]).join(",")));
+  if (curSet.size !== negSet.size) return false;
+  for (const s of negSet) if (!curSet.has(s)) return false;
+  return true;
+}

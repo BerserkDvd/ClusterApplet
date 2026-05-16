@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { R, AH, C, PRESETS, dc, makeInitial, parsePresetText, presetToJSON, buildShareURL, mutateQuiver, findSpecGen, fmtVec, fmtCharge, fmtChargeNeg, getEdges, svgPt, nodeAt, inPositiveCone } from "./quiver-core";
+import { R, AH, C, PRESETS, dc, makeInitial, parsePresetText, presetToJSON, buildShareURL, mutateQuiver, findSpecGen, fmtVec, fmtCharge, fmtChargeNeg, getEdges, svgPt, nodeAt, inPositiveCone, isAllNegated } from "./quiver-core";
 import { Celebration } from "./Celebration";
 
 export default function QuiverMutationApp() {
@@ -109,17 +109,18 @@ export default function QuiverMutationApp() {
     setNodes(r.nodes); setB(r.B);
     setMutLog(l => [...l, { index: k, charge: chargeAtMutation }]);
     setFlash(k); setTimeout(() => setFlash(null), 350);
+    // Did THIS mutation just close out a negating sequence? (true for the final
+    // guided step AND for fully freehand discoveries that never used Find S.)
+    const wasNegated = isAllNegated(nodes);
+    const nowNegated = isAllNegated(r.nodes);
+    if (nowNegated && !wasNegated) {
+      setCelebData({ count: mutLog.length + 1, method: "completed by hand" });
+      setCelebKey(c => c + 1);
+    }
     // Guided mode: advance if correct node, exit if wrong
     if (specResult && specResult.seq && specStep >= 0 && specStep < specResult.seq.length) {
       if (k === specResult.seq[specStep]) {
-        const next = specStep + 1;
-        setSpecStep(next);
-        if (next === specResult.seq.length) {
-          // User just landed the final guided mutation — celebrate.
-          const total = specResult.charges ? specResult.charges.length : specResult.seq.length;
-          setCelebData({ count: total, method: "completed by hand" });
-          setCelebKey(c => c + 1);
-        }
+        setSpecStep(specStep + 1);
       } else {
         setSpecResult(null); setSpecStep(-1);
       }
@@ -129,7 +130,7 @@ export default function QuiverMutationApp() {
     } else {
       setSpecResult(null); setSpecStep(-1);
     }
-  }, [nodes, B, pushHistory, specResult, specStep]);
+  }, [nodes, B, pushHistory, specResult, specStep, mutLog.length]);
 
   const undo = useCallback(() => {
     if (!history.length) return;
