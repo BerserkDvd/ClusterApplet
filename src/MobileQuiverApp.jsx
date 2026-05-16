@@ -5,6 +5,7 @@ import {
   mutateQuiver, findSpecGen,
   fmtVec, fmtCharge, fmtChargeNeg, getEdges, nodeAt,
 } from "./quiver-core";
+import { Celebration } from "./Celebration";
 
 const MONO = "'Menlo','Consolas','Monaco',monospace";
 const TOUCH_R = 36;        // hit-test radius in world units (larger than visual R=24 for fingers)
@@ -34,6 +35,8 @@ export default function MobileQuiverApp() {
   const [toast, setToast] = useState("");
   const [view, setView] = useState({ tx: 0, ty: 0, s: 1 });
   const [vbSize, setVbSize] = useState({ w: 900, h: 700 });
+  const [celebKey, setCelebKey] = useState(0);
+  const [celebData, setCelebData] = useState({ count: 0, method: "" });
 
   const svgRef = useRef(null);
   const nextId = useRef(100);
@@ -108,6 +111,14 @@ export default function MobileQuiverApp() {
       console.warn("URL-hash preset failed to load:", e.message);
     }
   }, [importPreset]);
+
+  // Celebrate when a spectrum-generator is discovered.
+  useEffect(() => {
+    if (specResult && specResult.charges) {
+      setCelebData({ count: specResult.charges.length, method: specResult.method || "" });
+      setCelebKey(k => k + 1);
+    }
+  }, [specResult]);
 
   const pushHistory = useCallback(() => {
     setHistory(h => [...h, { nodes: dc(nodes), B: dc(B), mutLog: dc(mutLog) }]);
@@ -724,6 +735,8 @@ export default function MobileQuiverApp() {
         <TabBtn label="S" onClick={() => setActiveSheet("S")} accent={C.specgen} highlight={!!specResult} />
         <TabBtn label="⇄" onClick={() => setActiveSheet("⇄")} accent={C.accent} />
       </div>
+
+      <Celebration trigger={celebKey} count={celebData.count} method={celebData.method} />
 
       {/* Toast */}
       {toast && (
