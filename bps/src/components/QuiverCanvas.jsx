@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { C, NODE_R } from "../ui/theme.js";
-import { addNode, moveNode, removeNode, arrowsFromB } from "../model/quiver.js";
+import { addNode, moveNode, removeNode, arrowsFromB, nodeLabel } from "../model/quiver.js";
 
 // Interactive SVG canvas for a BPS quiver.  Two explicit modes:
 //   CONSTRUCT — click empty space to add a node; click a node to select it
@@ -73,27 +73,31 @@ export default function QuiverCanvas({ quiver, onChange, mode, selected, onSelec
       ))}
 
       {quiver.nodes.map((nd, i) => {
-        const isSel = i === selected;
-        const isHover = i === hover;
+        const isSel = i === selected, isHover = i === hover;
+        const framing = nd.kind === "framing";
+        const stroke = isSel ? C.selected : isHover ? C.hover : framing ? C.framingStroke : C.nodeStroke;
+        const label = nodeLabel(quiver, i).text;
+        const s = NODE_R * 1.8; // square side
         return (
           <g key={nd.id}>
-            {isSel && <circle cx={nd.x} cy={nd.y} r={NODE_R + 5} fill="none" stroke={C.selected} strokeWidth="2" opacity="0.7" />}
-            <circle
-              cx={nd.x} cy={nd.y} r={NODE_R}
-              fill={nd.frozen ? C.frozenFill : C.nodeFill}
-              stroke={isSel ? C.selected : isHover ? C.hover : nd.frozen ? C.frozenStroke : C.nodeStroke}
-              strokeWidth={isSel || isHover ? 3 : 2}
-              strokeDasharray={nd.frozen ? "5 4" : "none"}
-            />
-            <text x={nd.x} y={nd.y + 5} textAnchor="middle" fontSize="14" fontWeight="700"
-              fill={C.text} style={{ pointerEvents: "none", userSelect: "none" }}>{`γ${i + 1}`}</text>
+            {isSel && (framing
+              ? <rect x={nd.x - s / 2 - 5} y={nd.y - s / 2 - 5} width={s + 10} height={s + 10} rx="5" fill="none" stroke={C.selected} strokeWidth="2" opacity="0.7" />
+              : <circle cx={nd.x} cy={nd.y} r={NODE_R + 5} fill="none" stroke={C.selected} strokeWidth="2" opacity="0.7" />)}
+            {framing ? (
+              <rect x={nd.x - s / 2} y={nd.y - s / 2} width={s} height={s} rx="4"
+                fill={C.framingFill} stroke={stroke} strokeWidth={isSel || isHover ? 3 : 2} />
+            ) : (
+              <circle cx={nd.x} cy={nd.y} r={NODE_R} fill={C.nodeFill} stroke={stroke} strokeWidth={isSel || isHover ? 3 : 2} />
+            )}
+            <text x={nd.x} y={nd.y + 5} textAnchor="middle" fontSize="13" fontWeight="700"
+              fill={C.text} style={{ pointerEvents: "none", userSelect: "none" }}>{label}</text>
           </g>
         );
       })}
 
       {quiver.nodes.length === 0 && (
         <text x="50%" y="50%" textAnchor="middle" fill={C.dim} fontSize="15">
-          Construct mode: click to add a node · or open Presets →
+          Construct mode: click to add a gauge node · or open Presets →
         </text>
       )}
     </svg>

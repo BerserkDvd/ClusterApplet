@@ -8,6 +8,7 @@
   --green: #34d399;
   --red: #ef4444;
   --amber: #fbbf24;
+  --violet: #c084fc;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
@@ -92,8 +93,11 @@ button.primary, button.on { background: var(--accent); color: #06122b; font-weig
 }
 .matrix td.cell:hover { border-color: var(--accent); }
 .matrix td.diag { color: var(--dim); background: #172033; cursor: default; }
+.matrix td.ff { color: var(--dim); background: #221a33; cursor: default; }
 .matrix td.pos { color: var(--accent); font-weight: 700; }
 .matrix td.neg { color: var(--red); font-weight: 700; }
+.matrix th.fhead { color: var(--violet); }
+.tag.violet { color: var(--violet); border-color: var(--violet); }
 
 .charges { list-style: none; margin: 0; padding: 0; font-family: var(--mono); font-size: 12px; }
 .charges li { padding: 3px 0; }

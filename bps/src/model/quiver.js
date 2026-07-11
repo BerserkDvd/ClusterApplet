@@ -1,36 +1,31 @@
 // quiver.js — the BPS-quiver input data model (pure, framework-free).
 //
-// A BPS quiver is the input to the real `BPSKAlgebra(pairing, node_charges,
-// spec)`.  Here the primary datum is the antisymmetric **exchange matrix** B
-// (= the Dirac pairing ⟨γ_i, γ_j⟩ between node charges / the BPS-quiver
-// adjacency, B[i][j] = #arrows i→j).  In the standard case the node charges
-// are the canonical basis {γ_i}, so the ambient lattice pairing IS B and the
-// constructor payload is `BPSKAlgebra(pairing=B, node_charges=identity)`.
-// `frozen` marks non-mutable (flavour) nodes for the future S-finder; the
-// real BPSKAlgebra auto-extracts the flavour lattice ker(B), so `frozen` is a
-// UI/display concept, not a constructor argument.  `spec` (optional) is the
-// ordered BPS spectrum generator S = ∏ E_q(X_γ), either as charge tuples or a
-// node-index mutation sequence — left empty here for the S-finder to compute.
+// Two node kinds:
+//   · "gauge"   — a mutable BPS-quiver node γ_i (a circle).  The gauge nodes
+//                 and their Dirac pairing ARE the BPS quiver fed to the real
+//                 BPSKAlgebra(pairing, node_charges, spec).
+//   · "framing" — a FRAMING node (a square): an extended charge γ *outside*
+//                 the lattice spanned by the gauge γ_i, specified purely by
+//                 its Dirac pairings ⟨γ, γ_i⟩ (its arrows to the gauge nodes).
+//                 It defines an extended F_γ (a framed line operator):
+//                 findable (F_γ·S = X_γ + O(q) needs only ⟨γ,γ_i⟩), but two
+//                 extended F_γ CANNOT be multiplied.  Not mutated by the
+//                 S-finder.
 //
-// This module is deliberately input-only: it carries NO cluster-mutation or
-// spectrum-search math (Plan 39 D3 retires the toy JS engine; the real
-// algebra owns all math via Pyodide later).
+// The antisymmetric exchange matrix B holds ⟨node_a, node_b⟩ for all nodes;
+// the gauge×gauge block is the BPS quiver, the framing→gauge rows are the
+// framings ⟨γ, γ_i⟩.  This module is input-only: NO cluster-mutation or
+// spectrum-search math (Plan 39 D3; the real algebra owns all math).
 
 export function identityCharges(n) {
-  return Array.from({ length: n }, (_, i) =>
-    Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))
-  );
+  return Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
 }
-
 export function zeroMatrix(n) {
   return Array.from({ length: n }, () => Array(n).fill(0));
 }
 
 let _uid = 0;
-export function freshId() {
-  _uid += 1;
-  return `n${_uid}`;
-}
+export function freshId() { _uid += 1; return `n${_uid}`; }
 
 // Build a normalized quiver from loose fields (a preset or an import).
 export function makeQuiver(spec = {}) {
@@ -40,32 +35,25 @@ export function makeQuiver(spec = {}) {
     Array.isArray(spec.positions) && spec.positions.length === n
       ? spec.positions.map((p) => [Number(p[0]), Number(p[1])])
       : circularLayout(n);
-  const frozen =
-    Array.isArray(spec.frozen) && spec.frozen.length === n
-      ? spec.frozen.map(Boolean)
-      : Array(n).fill(false);
+  // `kinds` is the current field; legacy `frozen` is ignored (frozen is gone).
+  const kinds =
+    Array.isArray(spec.kinds) && spec.kinds.length === n
+      ? spec.kinds.map((k) => (k === "framing" ? "framing" : "gauge"))
+      : Array(n).fill("gauge");
   const charges =
     Array.isArray(spec.charges) && spec.charges.length === n
       ? spec.charges.map((c) => c.map((x) => Math.trunc(Number(x))))
       : identityCharges(n);
   const nodes = Array.from({ length: n }, (_, i) => ({
-    id: freshId(),
-    x: positions[i][0],
-    y: positions[i][1],
-    frozen: frozen[i],
-    charge: charges[i],
+    id: freshId(), x: positions[i][0], y: positions[i][1], kind: kinds[i], charge: charges[i],
   }));
   return {
     name: typeof spec.name === "string" && spec.name.trim() ? spec.name.trim() : "Untitled quiver",
-    nodes,
-    B,
-    spec: normalizeSpec(spec.spec),
+    nodes, B, spec: normalizeSpec(spec.spec),
   };
 }
 
-export function emptyQuiver() {
-  return { name: "Untitled quiver", nodes: [], B: [], spec: null };
-}
+export function emptyQuiver() { return { name: "Untitled quiver", nodes: [], B: [], spec: null }; }
 
 export function circularLayout(n, { cx = 300, cy = 235, radius } = {}) {
   if (n === 0) return [];
@@ -78,8 +66,7 @@ export function circularLayout(n, { cx = 300, cy = 235, radius } = {}) {
 }
 
 function normalizeSpec(s) {
-  if (s == null) return null;
-  if (!Array.isArray(s.seq)) return null;
+  if (s == null || !Array.isArray(s.seq)) return null;
   return {
     seq: s.seq.map((v) => Math.trunc(Number(v))),
     charges: Array.isArray(s.charges) ? s.charges.map((c) => c.map(Number)) : [],
@@ -98,15 +85,14 @@ export function cloneQuiver(q) {
   };
 }
 
-export function addNode(q, x, y) {
+export function addNode(q, x, y, kind = "gauge") {
   const r = cloneQuiver(q);
   const n = r.nodes.length;
-  r.nodes.push({ id: freshId(), x, y, frozen: false, charge: unit(n + 1, n) });
-  // grow B and every existing charge vector by one dimension
+  r.nodes.push({ id: freshId(), x, y, kind, charge: unit(n + 1, n) });
   for (const row of r.B) row.push(0);
   r.B.push(Array(n + 1).fill(0));
   for (let i = 0; i < n; i++) r.nodes[i].charge.push(0);
-  r.spec = null; // editing invalidates any imported spec
+  r.spec = null;
   return r;
 }
 
@@ -123,16 +109,16 @@ export function removeNode(q, index) {
 export function moveNode(q, index, x, y) {
   const r = cloneQuiver(q);
   r.nodes[index] = { ...r.nodes[index], x, y };
-  return r; // moving is display-only; spec/B untouched
-}
-
-export function toggleFrozen(q, index) {
-  const r = cloneQuiver(q);
-  r.nodes[index] = { ...r.nodes[index], frozen: !r.nodes[index].frozen };
   return r;
 }
 
-// Add `delta` arrows i→j (keeps B antisymmetric): B[i][j]+=delta, B[j][i]-=delta.
+export function setNodeKind(q, index, kind) {
+  const r = cloneQuiver(q);
+  r.nodes[index] = { ...r.nodes[index], kind: kind === "framing" ? "framing" : "gauge" };
+  return r;
+}
+
+// Add `delta` arrows i→j (keeps B antisymmetric).
 export function addArrow(q, i, j, delta = 1) {
   if (i === j) return q;
   const r = cloneQuiver(q);
@@ -148,81 +134,100 @@ export function setNodeCharge(q, index, charge) {
   return r;
 }
 
-export function renameQuiver(q, name) {
-  return { ...cloneQuiver(q), name };
+export function renameQuiver(q, name) { return { ...cloneQuiver(q), name }; }
+
+function unit(len, k) { const v = Array(len).fill(0); if (k < len) v[k] = 1; return v; }
+
+// ── Kind helpers + per-kind labels ──
+
+export function gaugeIndices(q) { return q.nodes.map((nd, i) => (nd.kind !== "framing" ? i : -1)).filter((i) => i >= 0); }
+export function framingIndices(q) { return q.nodes.map((nd, i) => (nd.kind === "framing" ? i : -1)).filter((i) => i >= 0); }
+
+// Label a node: gauge → γ{k}, framing → f{m} (running per-kind index).
+export function nodeLabel(q, index) {
+  let g = 0, f = 0;
+  for (let i = 0; i <= index; i++) {
+    if (q.nodes[i].kind === "framing") f++; else g++;
+  }
+  return q.nodes[index].kind === "framing" ? { text: `f${f}`, kind: "framing" } : { text: `γ${g}`, kind: "gauge" };
 }
 
-function unit(len, k) {
-  const v = Array(len).fill(0);
-  if (k < len) v[k] = 1;
-  return v;
+// The gauge×gauge block of B — the BPS quiver's Dirac pairing.
+export function gaugeBlock(q) {
+  const g = gaugeIndices(q);
+  return g.map((i) => g.map((j) => q.B[i][j]));
+}
+
+// For each framing node: { label, pairing:[⟨f, γ_i⟩ …] over the gauge nodes }.
+export function framingRows(q) {
+  const g = gaugeIndices(q);
+  return framingIndices(q).map((fi) => ({
+    label: nodeLabel(q, fi).text,
+    pairing: g.map((gi) => q.B[fi][gi]),
+  }));
 }
 
 // ── Validation ──
 
-// Returns { ok, errors: string[], warnings: string[] }.
 export function validateQuiver(q) {
-  const errors = [];
-  const warnings = [];
+  const errors = [], warnings = [];
   const n = q.nodes.length;
   if (q.B.length !== n) errors.push(`B is ${q.B.length}×… but there are ${n} nodes`);
-  for (let i = 0; i < q.B.length; i++) {
-    if (!Array.isArray(q.B[i]) || q.B[i].length !== n)
-      errors.push(`B row ${i + 1} must have length ${n}`);
-  }
+  for (let i = 0; i < q.B.length; i++)
+    if (!Array.isArray(q.B[i]) || q.B[i].length !== n) errors.push(`B row ${i + 1} must have length ${n}`);
   for (let i = 0; i < n; i++) {
     if (q.B[i]?.[i] !== 0) errors.push(`B[${i + 1}][${i + 1}] must be 0 (no self-loops)`);
     for (let j = 0; j < n; j++) {
-      const v = q.B[i]?.[j];
-      if (!Number.isInteger(v)) errors.push(`B[${i + 1}][${j + 1}] is not an integer`);
-      if (q.B[i]?.[j] + q.B[j]?.[i] !== 0)
-        errors.push(`B not antisymmetric at (${i + 1},${j + 1})`);
+      if (!Number.isInteger(q.B[i]?.[j])) errors.push(`B[${i + 1}][${j + 1}] is not an integer`);
+      if (q.B[i]?.[j] + q.B[j]?.[i] !== 0) errors.push(`B not antisymmetric at (${i + 1},${j + 1})`);
     }
   }
-  const mutable = q.nodes.filter((nd) => !nd.frozen).length;
-  if (n > 0 && mutable === 0) warnings.push("all nodes are frozen — nothing is mutable");
-  return { ok: errors.length === 0, errors: dedupe(errors), warnings };
-}
-
-function dedupe(a) {
-  return [...new Set(a)];
+  // framing↔framing pairings are not part of the data (a framing only pairs
+  // with the gauge nodes).
+  const fr = framingIndices(q);
+  for (const a of fr) for (const b of fr) if (a < b && q.B[a][b] !== 0)
+    warnings.push(`framing↔framing pairing ${nodeLabel(q, a).text},${nodeLabel(q, b).text} is ignored`);
+  if (n > 0 && gaugeIndices(q).length === 0) warnings.push("no gauge nodes — add a BPS-quiver node");
+  return { ok: errors.length === 0, errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
 }
 
 // ── The constructor payload: the args for the real BPSKAlgebra ──
-
-// Produces { name, pairing, node_charges, spec } — exactly the arguments the
-// real `BPSKAlgebra(pairing=…, node_charges=…, spec=…)` takes.  In the
-// standard (identity-charge) case, pairing = B and node_charges = {γ_i}.
+//
+// The BPS quiver is the GAUGE sublattice only; framing nodes are listed
+// separately as extended charges (their pairings with the gauge nodes).
 export function toConstructorPayload(q) {
-  const pairing = q.B.map((row) => [...row]);
-  const node_charges = q.nodes.map((nd) => [...nd.charge]);
-  const payload = { name: q.name, pairing, node_charges };
-  if (q.spec && q.spec.charges && q.spec.charges.length) payload.spec = q.spec.charges.map((c) => [...c]);
+  const pairing = gaugeBlock(q);
+  const k = pairing.length;
+  const payload = { name: q.name, pairing, node_charges: identityCharges(k) };
+  const spec = q.spec?.charges?.length ? q.spec.charges.map((c) => [...c]) : null;
+  if (spec) payload.spec = spec;
+  const framing = framingRows(q);
+  if (framing.length) payload.framing = framing;
   return payload;
 }
 
-// A copy-pasteable Python one-liner (informational; the real call runs in the
-// Pyodide worker later).
 export function toPythonSnippet(q) {
   const p = toConstructorPayload(q);
   const mat = (m) => "[" + m.map((r) => "[" + r.join(", ") + "]").join(", ") + "]";
   const charges = "[" + p.node_charges.map((c) => "(" + c.join(", ") + ")").join(", ") + "]";
-  let s = `BPSKAlgebra(pairing=${mat(p.pairing)}, node_charges=${charges}`;
+  let s = `A = BPSKAlgebra(pairing=${mat(p.pairing)}, node_charges=${charges}`;
   if (p.spec) s += `, spec=[${p.spec.map((c) => "(" + c.join(", ") + ")").join(", ")}]`;
   s += ")";
+  if (p.framing) {
+    s += "\n# extended F_γ (framing, findable — not multipliable):";
+    for (const fr of p.framing) s += `\n#   ${fr.label}: ⟨γ,γ_i⟩ = [${fr.pairing.join(", ")}]`;
+  }
   return s;
 }
 
-// ── Rendering helpers ──
+// ── ker(B) flavour rank (on the GAUGE block) ──
 
-// Integer-matrix rank via fraction-free Gaussian elimination (exact for the
-// small integer B here).  Used to report the flavour lattice.
 export function matrixRank(M) {
   const n = M.length;
   if (n === 0) return 0;
   const A = M.map((row) => row.map(Number));
-  let rank = 0;
   const rows = n, cols = M[0].length;
+  let rank = 0;
   for (let col = 0; col < cols && rank < rows; col++) {
     let piv = -1;
     for (let r = rank; r < rows; r++) if (Math.abs(A[r][col]) > 1e-9) { piv = r; break; }
@@ -238,13 +243,11 @@ export function matrixRank(M) {
   return rank;
 }
 
-// The flavour lattice Γ_f = ker(B): rank f = n − rank(B).  This — NOT any
-// per-node "frozen" flag — is how flavour enters BPSKAlgebra (bps_kalgebra.py:
-// "Γ_f := ker(B) is the abelian flavour sublattice … not from any per-node
-// frozen flag").  A degenerate B ⇒ flavour; R = AbelianZPlusRing(rank=f).
+// Flavour lattice Γ_f = ker(B) of the GAUGE quiver: rank f = k − rank(gaugeBlock).
+// This — not any per-node flag — is how flavour enters BPSKAlgebra.
 export function flavourRank(q) {
-  const n = q.nodes.length;
-  return n - matrixRank(q.B);
+  const G = gaugeBlock(q);
+  return G.length - matrixRank(G);
 }
 
 export function arrowsFromB(B) {

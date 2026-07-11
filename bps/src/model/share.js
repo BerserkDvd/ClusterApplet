@@ -8,19 +8,19 @@
 
 import { makeQuiver, validateQuiver, identityCharges } from "./quiver.js";
 
-// Serialize the current quiver to the wire object.
+// Serialize the current quiver to the wire object.  Node kinds are emitted
+// as `kinds` only when some node is a framing node (all-gauge is the default).
 export function toWireObject(q) {
   const n = q.nodes.length;
   const obj = {
     name: q.name,
     n,
     positions: q.nodes.map((nd) => [Math.round(nd.x), Math.round(nd.y)]),
-    frozen: q.nodes.map((nd) => nd.frozen),
     B: q.B.map((row) => [...row]),
   };
+  if (q.nodes.some((nd) => nd.kind === "framing")) obj.kinds = q.nodes.map((nd) => nd.kind);
   const charges = q.nodes.map((nd) => [...nd.charge]);
-  const identity = identityCharges(n);
-  if (JSON.stringify(charges) !== JSON.stringify(identity)) obj.charges = charges;
+  if (JSON.stringify(charges) !== JSON.stringify(identityCharges(n))) obj.charges = charges;
   if (q.spec && q.spec.seq && q.spec.seq.length) obj.spec = q.spec;
   return obj;
 }
