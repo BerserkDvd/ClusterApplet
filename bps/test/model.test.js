@@ -111,6 +111,10 @@ test("autoArrange repositions within the box and preserves structure", () => {
     assert.ok(nd.y >= 0 && nd.y <= 460, `y=${nd.y}`);
   }
   assert.ok(a.nodes.some((nd, i) => nd.x !== q.nodes[i].x || nd.y !== q.nodes[i].y));
+  // a small quiver keeps a compact natural size — NOT stretched to the box edges
+  const xs = a.nodes.map((nd) => nd.x), ys = a.nodes.map((nd) => nd.y);
+  assert.ok(Math.max(...xs) - Math.min(...xs) < 472, "compact in x (not edge-to-edge)");
+  assert.ok(Math.max(...ys) - Math.min(...ys) < 332, "compact in y (not edge-to-edge)");
 });
 
 test("preset tree nests folders and reaches every preset as a leaf", () => {

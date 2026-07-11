@@ -68,7 +68,7 @@ export function circularLayout(n, { cx = 300, cy = 235, radius } = {}) {
 // Prettifying auto-layout: a Fruchterman–Reingold force-directed embedding
 // (nodes repel, arrows attract), then fit-to-box.  Deterministic (seeded from
 // the current positions; circular if degenerate) so repeated presses settle.
-export function autoArrange(q, width = 600, height = 460, { iterations = 400, margin = 64 } = {}) {
+export function autoArrange(q, width = 600, height = 460, { iterations = 400, margin = 64, spacing = 125 } = {}) {
   const n = q.nodes.length;
   if (n === 0) return q;
   const r = cloneQuiver(q);
@@ -82,8 +82,10 @@ export function autoArrange(q, width = 600, height = 460, { iterations = 400, ma
 
   const edges = [];
   for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (q.B[i][j] !== 0) edges.push([i, j]);
-  const k = Math.sqrt(((width - 2 * margin) * (height - 2 * margin)) / n) * 0.75; // ideal edge length
-  let temp = width / 6;
+  // FIXED natural edge length (independent of canvas) — so the layout's
+  // intrinsic size scales with the node count, not the window.
+  const k = spacing;
+  let temp = k * 3;
 
   for (let it = 0; it < iterations; it++) {
     const disp = pos.map(() => [0, 0]);
@@ -114,7 +116,9 @@ export function autoArrange(q, width = 600, height = 460, { iterations = 400, ma
   const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
   const w = maxx - minx || 1, h = maxy - miny || 1;
   const bw = width - 2 * margin, bh = height - 2 * margin;
-  const scale = Math.min(bw / w, bh / h);
+  // Only shrink to fit (scale ≤ 1); never blow the layout up to the edges.
+  // A small quiver keeps its compact natural size and is centered.
+  const scale = Math.min(1, bw / w, bh / h);
   const ox = margin + (bw - w * scale) / 2, oy = margin + (bh - h * scale) / 2;
   for (let i = 0; i < n; i++) {
     r.nodes[i] = { ...r.nodes[i], x: Math.round(ox + (pos[i][0] - minx) * scale), y: Math.round(oy + (pos[i][1] - miny) * scale) };
