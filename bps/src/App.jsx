@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import QuiverCanvas from "./components/QuiverCanvas.jsx";
 import SidePanel from "./components/SidePanel.jsx";
 import PresetTree from "./components/PresetTree.jsx";
-import { makeQuiver, emptyQuiver, renameQuiver, removeNode, setNodeKind, addNode, autoArrange } from "./model/quiver.js";
+import { makeQuiver, emptyQuiver, renameQuiver, removeNode, autoArrange, nodeLabel } from "./model/quiver.js";
 import { presetByKey } from "./model/presets.js";
 import { toJSONString, toShareURL, parseImport, quiverFromLocationHash } from "./model/share.js";
 
@@ -52,12 +52,6 @@ export default function App() {
     setSelected(-1);
   }
 
-  function addFraming() {
-    setSelected(quiver.nodes.length);
-    setQuiver((q) => addNode(q, 300, 235, "framing"));
-    setMode("construct");
-  }
-
   function resetQuiver() {
     if (presetKey && presetByKey(presetKey)) loadPreset(presetKey);
     else { setQuiver(emptyQuiver()); setSelected(-1); setToast("Reset to empty"); }
@@ -77,7 +71,7 @@ export default function App() {
           <span className="logo">K𝖖</span>
           <div>
             <div className="title">KAlgebra Applets</div>
-            <div className="subtitle">BPS quiver input · v0.7</div>
+            <div className="subtitle">BPS quiver input · v0.8</div>
           </div>
         </div>
 
@@ -85,7 +79,6 @@ export default function App() {
           onChange={(e) => setQuiver((q) => renameQuiver(q, e.target.value))} aria-label="Quiver name" />
 
         <button onClick={() => setPresetsOpen(true)} title="Browse the preset library">📚 Presets</button>
-        <button onClick={addFraming} title="Add a framing node (square) — an extended charge γ outside the BPS lattice, defining an extended F_γ">+ ▪ Framing</button>
         <button onClick={doAutoArrange} title="Prettify: auto-arrange the nodes into a clean force-directed layout">✨ Auto-arrange</button>
         <button onClick={resetQuiver} title="Reset to the loaded preset (or empty)">⟲ Reset</button>
 
@@ -98,12 +91,7 @@ export default function App() {
 
         {selected >= 0 && selected < quiver.nodes.length && (
           <span className="sel-chip">
-            {quiver.nodes[selected].kind === "framing" ? "framing" : "gauge"} node
-            <button className="chip-btn"
-              title="Convert between a gauge (BPS, circle) node and a framing (extended-charge, square) node"
-              onClick={() => setQuiver((q) => setNodeKind(q, selected, q.nodes[selected].kind === "framing" ? "gauge" : "framing"))}>
-              {quiver.nodes[selected].kind === "framing" ? "→ gauge" : "→ framing"}
-            </button>
+            {nodeLabel(quiver, selected).text}
             <button className="chip-x" title="Delete this node" onClick={deleteSelected}>✕</button>
           </span>
         )}
@@ -120,7 +108,7 @@ export default function App() {
           <QuiverCanvas quiver={quiver} onChange={setQuiver} mode={mode} selected={selected} onSelect={setSelected} />
           <div className="canvas-legend">
             {mode === "construct"
-              ? "Construct: drag between nodes = draw an arrow (drag the reverse to remove) · click empty = add node · click node = select · right-click = delete · + ▪ Framing adds a square"
+              ? "Construct: drag between nodes = draw an arrow (drag the reverse to remove) · click empty = add node · click node = select · right-click = delete"
               : "Move: drag a node to reposition (display only)"}
           </div>
         </div>
