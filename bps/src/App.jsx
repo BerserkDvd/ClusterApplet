@@ -11,7 +11,7 @@ const DEFAULT_KEY = "a1a2";
 export default function App() {
   const [quiver, setQuiver] = useState(() => quiverFromLocationHash() || makeQuiver(presetByKey(DEFAULT_KEY)));
   const [presetKey, setPresetKey] = useState(DEFAULT_KEY);
-  const [mode, setMode] = useState("construct");
+  const [mode, setMode] = useState("arrange");
   const [selected, setSelected] = useState(-1);
   const [presetsOpen, setPresetsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -77,7 +77,7 @@ export default function App() {
           <span className="logo">K𝖖</span>
           <div>
             <div className="title">KAlgebra Applets</div>
-            <div className="subtitle">BPS quiver input · v0.6</div>
+            <div className="subtitle">BPS quiver input · v0.7</div>
           </div>
         </div>
 
@@ -90,10 +90,10 @@ export default function App() {
         <button onClick={resetQuiver} title="Reset to the loaded preset (or empty)">⟲ Reset</button>
 
         <div className="mode-toggle" role="group" aria-label="Mode">
-          <button className={mode === "construct" ? "on" : ""} onClick={() => setMode("construct")}
-            title="Drag between nodes = arrow · click empty = add node · click node = select · right-click = delete">Construct</button>
           <button className={mode === "arrange" ? "on" : ""} onClick={() => setMode("arrange")}
             title="Drag nodes to reposition">Move</button>
+          <button className={mode === "construct" ? "on" : ""} onClick={() => setMode("construct")}
+            title="Drag between nodes = arrow · click empty = add node · click node = select · right-click = delete">Construct</button>
         </div>
 
         {selected >= 0 && selected < quiver.nodes.length && (
