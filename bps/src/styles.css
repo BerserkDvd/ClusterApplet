@@ -133,6 +133,40 @@ button.primary, button.on { background: var(--accent); color: #06122b; font-weig
   padding: 8px 16px; border-radius: 8px; z-index: 30;
 }
 
+/* ── Selected-node chip ── */
+.sel-chip {
+  display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono);
+  font-size: 12px; color: var(--green); border: 1px solid var(--green);
+  border-radius: 7px; padding: 4px 8px;
+}
+.chip-btn {
+  border: 1px solid var(--border); background: var(--bg); color: var(--dim);
+  border-radius: 5px; padding: 1px 7px; font-size: 10px; cursor: pointer;
+}
+.chip-btn:hover { border-color: var(--accent); color: var(--text); }
+.chip-x {
+  border: none; background: transparent; color: var(--green); padding: 0 2px;
+  font-size: 13px; line-height: 1; cursor: pointer;
+}
+.chip-x:hover { color: var(--red); }
+
+/* ── Preset tree ── */
+.preset-tree { max-height: 52vh; overflow-y: auto; margin: 4px 0 2px; }
+.preset-tree details { margin: 2px 0; }
+.preset-tree summary {
+  cursor: pointer; padding: 5px 6px; border-radius: 6px; font-weight: 600;
+  color: var(--accent); user-select: none; list-style: revert;
+}
+.preset-tree summary:hover { background: var(--bg); }
+.tree-children { margin-left: 14px; border-left: 1px solid var(--border); padding-left: 8px; }
+.tree-leaf {
+  display: block; width: 100%; text-align: left; background: transparent;
+  border: 1px solid transparent; border-radius: 6px; padding: 6px 8px;
+  margin: 1px 0; color: var(--text); font-size: 13px; cursor: pointer;
+}
+.tree-leaf:hover { background: var(--bg); border-color: var(--border); }
+.tree-leaf.active { background: rgba(96,165,250,.15); border-color: var(--accent); }
+
 @media (max-width: 720px) {
   .workspace { flex-direction: column; }
   .side-panel { width: auto; border-left: none; border-top: 1px solid var(--border); }

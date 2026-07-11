@@ -2,20 +2,20 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   makeQuiver, validateQuiver, toConstructorPayload, toPythonSnippet,
-  addArrow, addNode, removeNode, identityCharges,
+  addArrow, addNode, removeNode, identityCharges, flavourRank, matrixRank,
 } from "../src/model/quiver.js";
-import { presetByKey } from "../src/model/presets.js";
+import { presetByKey, presetTree, PRESETS } from "../src/model/presets.js";
 import { toWireObject, objectToQuiver, parseImport, toShareURL } from "../src/model/share.js";
 
 test("pentagon preset builds a valid 2-node quiver", () => {
-  const q = makeQuiver(presetByKey("a2-pentagon"));
+  const q = makeQuiver(presetByKey("a1a2"));
   assert.equal(q.nodes.length, 2);
   assert.deepEqual(q.B, [[0, 1], [-1, 0]]);
   assert.ok(validateQuiver(q).ok);
 });
 
 test("constructor payload = the BPSKAlgebra args", () => {
-  const q = makeQuiver(presetByKey("a2-pentagon"));
+  const q = makeQuiver(presetByKey("a1a2"));
   const p = toConstructorPayload(q);
   assert.deepEqual(p.pairing, [[0, 1], [-1, 0]]);
   assert.deepEqual(p.node_charges, identityCharges(2));
@@ -31,7 +31,7 @@ test("validation catches a non-antisymmetric B", () => {
 });
 
 test("addArrow preserves antisymmetry; add/removeNode keep dims", () => {
-  let q = makeQuiver(presetByKey("a2-pentagon"));
+  let q = makeQuiver(presetByKey("a1a2"));
   q = addArrow(q, 0, 1, 1); // B[0][1] -> 2
   assert.equal(q.B[0][1], 2);
   assert.equal(q.B[1][0], -2);
@@ -58,14 +58,33 @@ test("parseImport accepts a raw JSON object and a URL hash", () => {
   const raw = '{"name":"t","n":2,"B":[[0,1],[-1,0]]}';
   const a = parseImport(raw);
   assert.deepEqual(a.B, [[0, 1], [-1, 0]]);
-  const url = toShareURL(makeQuiver(presetByKey("a2-pentagon")), "https://x/y");
+  const url = toShareURL(makeQuiver(presetByKey("a1a2")), "https://x/y");
   assert.ok(url.startsWith("https://x/y#"));
   const b = parseImport(url);
   assert.deepEqual(b.B, [[0, 1], [-1, 0]]);
 });
 
+test("flavour rank = dim ker(B) (degenerate B ⇒ flavour)", () => {
+  // pentagon: non-degenerate ⇒ f = 0
+  assert.equal(flavourRank(makeQuiver(presetByKey("a1a2"))), 0);
+  // hexagon B has a 1-dim kernel ⇒ f = 1
+  const hex = makeQuiver({ name: "hex", B: [[0, 1, -1], [-1, 0, 1], [1, -1, 0]] });
+  assert.equal(matrixRank(hex.B), 2);
+  assert.equal(flavourRank(hex), 1);
+});
+
+test("preset tree nests folders and reaches every preset as a leaf", () => {
+  const tree = presetTree();
+  assert.ok(tree.some((n) => n.type === "folder" && n.label === "Argyres–Douglas"));
+  const leaves = [];
+  const walk = (ns) => ns.forEach((n) => (n.type === "folder" ? walk(n.children) : leaves.push(n.key)));
+  walk(tree);
+  assert.equal(leaves.length, PRESETS.length);
+  assert.ok(leaves.includes("su2-nf4"));
+});
+
 test("identity charges are omitted from the wire object, non-identity kept", () => {
-  const q = makeQuiver(presetByKey("a2-pentagon"));
+  const q = makeQuiver(presetByKey("a1a2"));
   assert.equal(toWireObject(q).charges, undefined);
   const q2 = makeQuiver({ name: "emb", B: [[0, 1], [-1, 0]], charges: [[1, 0], [1, 1]] });
   assert.deepEqual(toWireObject(q2).charges, [[1, 0], [1, 1]]);

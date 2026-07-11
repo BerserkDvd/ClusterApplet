@@ -215,6 +215,38 @@ export function toPythonSnippet(q) {
 
 // ── Rendering helpers ──
 
+// Integer-matrix rank via fraction-free Gaussian elimination (exact for the
+// small integer B here).  Used to report the flavour lattice.
+export function matrixRank(M) {
+  const n = M.length;
+  if (n === 0) return 0;
+  const A = M.map((row) => row.map(Number));
+  let rank = 0;
+  const rows = n, cols = M[0].length;
+  for (let col = 0; col < cols && rank < rows; col++) {
+    let piv = -1;
+    for (let r = rank; r < rows; r++) if (Math.abs(A[r][col]) > 1e-9) { piv = r; break; }
+    if (piv < 0) continue;
+    [A[rank], A[piv]] = [A[piv], A[rank]];
+    for (let r = 0; r < rows; r++) {
+      if (r === rank) continue;
+      const f = A[r][col] / A[rank][col];
+      if (f !== 0) for (let c = col; c < cols; c++) A[r][c] -= f * A[rank][c];
+    }
+    rank++;
+  }
+  return rank;
+}
+
+// The flavour lattice Γ_f = ker(B): rank f = n − rank(B).  This — NOT any
+// per-node "frozen" flag — is how flavour enters BPSKAlgebra (bps_kalgebra.py:
+// "Γ_f := ker(B) is the abelian flavour sublattice … not from any per-node
+// frozen flag").  A degenerate B ⇒ flavour; R = AbelianZPlusRing(rank=f).
+export function flavourRank(q) {
+  const n = q.nodes.length;
+  return n - matrixRank(q.B);
+}
+
 export function arrowsFromB(B) {
   const out = [];
   const n = B.length;
