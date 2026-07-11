@@ -64,7 +64,7 @@ export default function App() {
           <span className="logo">K𝖖</span>
           <div>
             <div className="title">KAlgebra Applets</div>
-            <div className="subtitle">BPS quiver input · v0.3</div>
+            <div className="subtitle">BPS quiver input · v0.4</div>
           </div>
         </div>
 
@@ -105,7 +105,7 @@ export default function App() {
           <QuiverCanvas quiver={quiver} onChange={setQuiver} mode={mode} selected={selected} onSelect={setSelected} />
           <div className="canvas-legend">
             {mode === "construct"
-              ? "Construct: click empty = add gauge node (γ) · click node = select · right-click node = delete · + ▪ Framing adds a square · build arrows in the matrix →"
+              ? "Construct: drag between nodes = draw an arrow (drag the reverse to remove) · click empty = add node · click node = select · right-click = delete · + ▪ Framing adds a square"
               : "Arrange: drag a node to reposition (display only)"}
           </div>
         </div>

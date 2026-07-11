@@ -1,30 +1,33 @@
 import React, { useRef, useState } from "react";
 import { C, NODE_R } from "../ui/theme.js";
-import { addNode, moveNode, removeNode, arrowsFromB, nodeLabel } from "../model/quiver.js";
+import { addNode, moveNode, removeNode, addArrow, arrowsFromB, nodeLabel } from "../model/quiver.js";
 
-// Interactive SVG canvas for a BPS quiver.  Two explicit modes:
-//   CONSTRUCT — click empty space to add a node; click a node to select it
-//               (then use the matrix panel to add arrows, or Delete to remove).
-//   ARRANGE   — drag nodes to reposition (display only; does not touch B).
-// Arrows are built in the matrix panel (unambiguous), not by dragging between
-// nodes.  Frozen nodes (only from imported quivers) render dashed, read-only.
+// Interactive SVG canvas for a BPS quiver.
+//   CONSTRUCT — · drag from one node to another = add an arrow (drag the
+//                 reverse direction to remove / flip one)
+//               · click empty space  = add a gauge node
+//               · click a node       = select it
+//               · right-click a node = delete it
+//   ARRANGE   — drag nodes to reposition (does not touch B).
+// The matrix panel mirrors the arrows for precise/bulk edits.
 export default function QuiverCanvas({ quiver, onChange, mode, selected, onSelect }) {
   const svgRef = useRef(null);
   const [hover, setHover] = useState(-1);
-  const [drag, setDrag] = useState(null);
+  const [drag, setDrag] = useState(null);      // arrange: {index,dx,dy}
+  const [connect, setConnect] = useState(null); // construct: {from,cx,cy,moved}
   const arrows = arrowsFromB(quiver.B);
 
-  function pt(e) {
+  const pt = (e) => {
     const r = svgRef.current.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
-  }
-  function nodeAt(x, y) {
+  };
+  const nodeAt = (x, y) => {
     for (let i = quiver.nodes.length - 1; i >= 0; i--) {
       const nd = quiver.nodes[i];
       if ((nd.x - x) ** 2 + (nd.y - y) ** 2 <= NODE_R * NODE_R) return i;
     }
     return -1;
-  }
+  };
 
   function onPointerDown(e) {
     const { x, y } = pt(e);
@@ -33,23 +36,48 @@ export default function QuiverCanvas({ quiver, onChange, mode, selected, onSelec
       if (i >= 0) {
         setDrag({ index: i, dx: quiver.nodes[i].x - x, dy: quiver.nodes[i].y - y });
         onSelect?.(i);
-        e.currentTarget.setPointerCapture?.(e.pointerId);
+        svgRef.current.setPointerCapture?.(e.pointerId);
       }
       return;
     }
     // CONSTRUCT
-    if (e.button === 2) {                       // right-click a node = delete it
-      if (i >= 0) { onChange(removeNode(quiver, i)); onSelect?.(-1); }
-      return;
+    if (e.button === 2) { if (i >= 0) { onChange(removeNode(quiver, i)); onSelect?.(-1); } return; }
+    if (i >= 0) {
+      setConnect({ from: i, cx: x, cy: y, moved: false });
+      svgRef.current.setPointerCapture?.(e.pointerId);
+    } else {
+      onChange(addNode(quiver, Math.round(x), Math.round(y)));
+      onSelect?.(quiver.nodes.length);
     }
-    if (i >= 0) onSelect?.(i === selected ? -1 : i);
-    else { onChange(addNode(quiver, Math.round(x), Math.round(y))); onSelect?.(quiver.nodes.length); }
   }
+
   function onPointerMove(e) {
     const { x, y } = pt(e);
     setHover(nodeAt(x, y));
     if (drag) onChange(moveNode(quiver, drag.index, Math.round(x + drag.dx), Math.round(y + drag.dy)));
+    if (connect) {
+      const from = quiver.nodes[connect.from];
+      const moved = connect.moved || (x - from.x) ** 2 + (y - from.y) ** 2 > (NODE_R + 6) ** 2;
+      setConnect({ ...connect, cx: x, cy: y, moved });
+    }
   }
+
+  function onPointerUp(e) {
+    if (connect) {
+      const { x, y } = pt(e);
+      const target = nodeAt(x, y);
+      if (!connect.moved && target === connect.from) {
+        onSelect?.(connect.from === selected ? -1 : connect.from);
+      } else if (target >= 0 && target !== connect.from) {
+        const both = quiver.nodes[connect.from].kind === "framing" && quiver.nodes[target].kind === "framing";
+        if (!both) onChange(addArrow(quiver, connect.from, target, 1));
+      }
+      setConnect(null);
+    }
+    setDrag(null);
+  }
+
+  const rubber = connect && connect.moved ? quiver.nodes[connect.from] : null;
 
   return (
     <svg
@@ -58,8 +86,8 @@ export default function QuiverCanvas({ quiver, onChange, mode, selected, onSelec
       style={{ background: C.bg, touchAction: "none", cursor: mode === "arrange" ? "grab" : "crosshair" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={() => setDrag(null)}
-      onPointerLeave={() => { setHover(-1); setDrag(null); }}
+      onPointerUp={onPointerUp}
+      onPointerLeave={() => { setHover(-1); setDrag(null); setConnect(null); }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <defs>
@@ -72,17 +100,22 @@ export default function QuiverCanvas({ quiver, onChange, mode, selected, onSelec
         <Arrow key={k} from={quiver.nodes[a.from]} to={quiver.nodes[a.to]} mult={a.mult} />
       ))}
 
+      {rubber && (
+        <line x1={rubber.x} y1={rubber.y} x2={connect.cx} y2={connect.cy}
+          stroke={C.accent} strokeWidth="1.8" strokeDasharray="5 4" opacity="0.8" />
+      )}
+
       {quiver.nodes.map((nd, i) => {
         const isSel = i === selected, isHover = i === hover;
         const framing = nd.kind === "framing";
         const stroke = isSel ? C.selected : isHover ? C.hover : framing ? C.framingStroke : C.nodeStroke;
         const label = nodeLabel(quiver, i).text;
-        const s = NODE_R * 1.8; // square side
+        const s = NODE_R * 1.8;
         return (
           <g key={nd.id}>
             {isSel && (framing
-              ? <rect x={nd.x - s / 2 - 5} y={nd.y - s / 2 - 5} width={s + 10} height={s + 10} rx="5" fill="none" stroke={C.selected} strokeWidth="2" opacity="0.7" />
-              : <circle cx={nd.x} cy={nd.y} r={NODE_R + 5} fill="none" stroke={C.selected} strokeWidth="2" opacity="0.7" />)}
+              ? <rect x={nd.x - s / 2 - 5} y={nd.y - s / 2 - 5} width={s + 10} height={s + 10} rx="5" fill="none" stroke={C.selected} strokeWidth="2" opacity="0.6" />
+              : <circle cx={nd.x} cy={nd.y} r={NODE_R + 5} fill="none" stroke={C.selected} strokeWidth="2" opacity="0.6" />)}
             {framing ? (
               <rect x={nd.x - s / 2} y={nd.y - s / 2} width={s} height={s} rx="4"
                 fill={C.framingFill} stroke={stroke} strokeWidth={isSel || isHover ? 3 : 2} />
@@ -97,7 +130,7 @@ export default function QuiverCanvas({ quiver, onChange, mode, selected, onSelec
 
       {quiver.nodes.length === 0 && (
         <text x="50%" y="50%" textAnchor="middle" fill={C.dim} fontSize="15">
-          Construct mode: click to add a gauge node · or open Presets →
+          Click to add a node · drag between nodes to draw an arrow · or open Presets →
         </text>
       )}
     </svg>
