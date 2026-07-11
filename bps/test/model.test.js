@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   makeQuiver, validateQuiver, toConstructorPayload, toPythonSnippet,
   addArrow, addNode, removeNode, identityCharges, flavourRank, matrixRank,
-  gaugeIndices, gaugeBlock, framingRows,
+  gaugeIndices, gaugeBlock, framingRows, autoArrange,
 } from "../src/model/quiver.js";
 import { presetByKey, presetTree, PRESETS } from "../src/model/presets.js";
 import { toWireObject, objectToQuiver, parseImport, toShareURL } from "../src/model/share.js";
@@ -99,6 +99,18 @@ test("framing kind round-trips through the wire (kinds)", async () => {
   const wire = toWireObject(q);
   assert.deepEqual(wire.kinds, ["gauge", "gauge", "framing"]);
   assert.equal(objectToQuiver(wire).nodes[2].kind, "framing");
+});
+
+test("autoArrange repositions within the box and preserves structure", () => {
+  const q = makeQuiver(presetByKey("su3-pure"));
+  const a = autoArrange(q, 600, 460);
+  assert.equal(a.nodes.length, 4);
+  assert.deepEqual(a.B, q.B);                    // arrows unchanged
+  for (const nd of a.nodes) {
+    assert.ok(nd.x >= 0 && nd.x <= 600, `x=${nd.x}`);
+    assert.ok(nd.y >= 0 && nd.y <= 460, `y=${nd.y}`);
+  }
+  assert.ok(a.nodes.some((nd, i) => nd.x !== q.nodes[i].x || nd.y !== q.nodes[i].y));
 });
 
 test("preset tree nests folders and reaches every preset as a leaf", () => {

@@ -65,6 +65,63 @@ export function circularLayout(n, { cx = 300, cy = 235, radius } = {}) {
   });
 }
 
+// Prettifying auto-layout: a Fruchterman–Reingold force-directed embedding
+// (nodes repel, arrows attract), then fit-to-box.  Deterministic (seeded from
+// the current positions; circular if degenerate) so repeated presses settle.
+export function autoArrange(q, width = 600, height = 460, { iterations = 400, margin = 64 } = {}) {
+  const n = q.nodes.length;
+  if (n === 0) return q;
+  const r = cloneQuiver(q);
+  if (n === 1) { r.nodes[0] = { ...r.nodes[0], x: Math.round(width / 2), y: Math.round(height / 2) }; return r; }
+
+  // seed positions (fall back to a circle if the current ones are degenerate)
+  let pos = q.nodes.map((nd) => [nd.x, nd.y]);
+  const spread = Math.max(...pos.map((p) => p[0])) - Math.min(...pos.map((p) => p[0]))
+               + Math.max(...pos.map((p) => p[1])) - Math.min(...pos.map((p) => p[1]));
+  if (!Number.isFinite(spread) || spread < 1) pos = circularLayout(n, { cx: width / 2, cy: height / 2 });
+
+  const edges = [];
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (q.B[i][j] !== 0) edges.push([i, j]);
+  const k = Math.sqrt(((width - 2 * margin) * (height - 2 * margin)) / n) * 0.75; // ideal edge length
+  let temp = width / 6;
+
+  for (let it = 0; it < iterations; it++) {
+    const disp = pos.map(() => [0, 0]);
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      const dx = pos[i][0] - pos[j][0], dy = pos[i][1] - pos[j][1];
+      const d = Math.hypot(dx, dy) || 0.01;
+      const f = (k * k) / d; // repulsion
+      disp[i][0] += (dx / d) * f; disp[i][1] += (dy / d) * f;
+    }
+    for (const [i, j] of edges) {
+      const dx = pos[i][0] - pos[j][0], dy = pos[i][1] - pos[j][1];
+      const d = Math.hypot(dx, dy) || 0.01;
+      const f = (d * d) / k; // attraction
+      disp[i][0] -= (dx / d) * f; disp[i][1] -= (dy / d) * f;
+      disp[j][0] += (dx / d) * f; disp[j][1] += (dy / d) * f;
+    }
+    for (let i = 0; i < n; i++) {
+      const dl = Math.hypot(disp[i][0], disp[i][1]) || 0.01;
+      pos[i][0] += (disp[i][0] / dl) * Math.min(dl, temp);
+      pos[i][1] += (disp[i][1] / dl) * Math.min(dl, temp);
+    }
+    temp = Math.max(temp * 0.975, 1);
+  }
+
+  // fit to the canvas box, preserving aspect ratio, centered
+  const xs = pos.map((p) => p[0]), ys = pos.map((p) => p[1]);
+  const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
+  const w = maxx - minx || 1, h = maxy - miny || 1;
+  const bw = width - 2 * margin, bh = height - 2 * margin;
+  const scale = Math.min(bw / w, bh / h);
+  const ox = margin + (bw - w * scale) / 2, oy = margin + (bh - h * scale) / 2;
+  for (let i = 0; i < n; i++) {
+    r.nodes[i] = { ...r.nodes[i], x: Math.round(ox + (pos[i][0] - minx) * scale), y: Math.round(oy + (pos[i][1] - miny) * scale) };
+  }
+  return r;
+}
+
 function normalizeSpec(s) {
   if (s == null || !Array.isArray(s.seq)) return null;
   return {

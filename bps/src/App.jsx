@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import QuiverCanvas from "./components/QuiverCanvas.jsx";
 import SidePanel from "./components/SidePanel.jsx";
 import PresetTree from "./components/PresetTree.jsx";
-import { makeQuiver, emptyQuiver, renameQuiver, removeNode, setNodeKind, addNode } from "./model/quiver.js";
+import { makeQuiver, emptyQuiver, renameQuiver, removeNode, setNodeKind, addNode, autoArrange } from "./model/quiver.js";
 import { presetByKey } from "./model/presets.js";
 import { toJSONString, toShareURL, parseImport, quiverFromLocationHash } from "./model/share.js";
 
@@ -18,6 +18,7 @@ export default function App() {
   const [importText, setImportText] = useState("");
   const [importErr, setImportErr] = useState("");
   const [toast, setToast] = useState("");
+  const canvasRef = useRef(null);
 
   useEffect(() => {
     if (!toast) return;
@@ -57,6 +58,18 @@ export default function App() {
     setMode("construct");
   }
 
+  function resetQuiver() {
+    if (presetKey && presetByKey(presetKey)) loadPreset(presetKey);
+    else { setQuiver(emptyQuiver()); setSelected(-1); setToast("Reset to empty"); }
+  }
+
+  function doAutoArrange() {
+    const el = canvasRef.current;
+    const w = el?.clientWidth || 600, h = el?.clientHeight || 460;
+    setQuiver((q) => autoArrange(q, w, h));
+    setToast("Auto-arranged");
+  }
+
   return (
     <div className="app">
       <header className="toolbar">
@@ -64,7 +77,7 @@ export default function App() {
           <span className="logo">K𝖖</span>
           <div>
             <div className="title">KAlgebra Applets</div>
-            <div className="subtitle">BPS quiver input · v0.4</div>
+            <div className="subtitle">BPS quiver input · v0.5</div>
           </div>
         </div>
 
@@ -73,12 +86,14 @@ export default function App() {
 
         <button onClick={() => setPresetsOpen(true)} title="Browse the preset library">📚 Presets</button>
         <button onClick={addFraming} title="Add a framing node (square) — an extended charge γ outside the BPS lattice, defining an extended F_γ">+ ▪ Framing</button>
+        <button onClick={doAutoArrange} title="Prettify: auto-arrange the nodes into a clean force-directed layout">✨ Auto-arrange</button>
+        <button onClick={resetQuiver} title="Reset to the loaded preset (or empty)">⟲ Reset</button>
 
         <div className="mode-toggle" role="group" aria-label="Mode">
           <button className={mode === "construct" ? "on" : ""} onClick={() => setMode("construct")}
-            title="Click empty = add gauge node · click node = select · right-click node = delete · matrix = arrows">Construct</button>
+            title="Drag between nodes = arrow · click empty = add node · click node = select · right-click = delete">Construct</button>
           <button className={mode === "arrange" ? "on" : ""} onClick={() => setMode("arrange")}
-            title="Drag nodes to reposition">Arrange</button>
+            title="Drag nodes to reposition">Move</button>
         </div>
 
         {selected >= 0 && selected < quiver.nodes.length && (
@@ -101,12 +116,12 @@ export default function App() {
       </header>
 
       <main className="workspace">
-        <div className="canvas-wrap">
+        <div className="canvas-wrap" ref={canvasRef}>
           <QuiverCanvas quiver={quiver} onChange={setQuiver} mode={mode} selected={selected} onSelect={setSelected} />
           <div className="canvas-legend">
             {mode === "construct"
               ? "Construct: drag between nodes = draw an arrow (drag the reverse to remove) · click empty = add node · click node = select · right-click = delete · + ▪ Framing adds a square"
-              : "Arrange: drag a node to reposition (display only)"}
+              : "Move: drag a node to reposition (display only)"}
           </div>
         </div>
         <SidePanel quiver={quiver} onChange={setQuiver} onCopy={copy} />
