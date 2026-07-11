@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K_q-algebras — live worked examples</title>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI",
+      Roboto, Helvetica, Arial, sans-serif;
+    color: #1a1a1a; background: #fafafa;
+  }
+  header { background: #12233b; color: #fff; padding: 20px 24px; }
+  header h1 { margin: 0 0 4px; font-size: 20px; }
+  header p { margin: 0; opacity: .85; font-size: 13px; }
+  main { max-width: 900px; margin: 0 auto; padding: 20px 24px 80px; }
+  #status {
+    position: sticky; top: 0; z-index: 5; padding: 8px 12px; margin: 0 0 16px;
+    border-radius: 6px; font-size: 13px; background: #fff8e1; border: 1px solid #f0d98a;
+  }
+  #status.ready { background: #e7f6e7; border-color: #a8d8a8; }
+  #status.error { background: #fdecea; border-color: #f0a9a2; }
+  .md h2 { border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-top: 32px; }
+  .md h3 { margin-top: 24px; }
+  .md code { background: #eef1f4; padding: 1px 4px; border-radius: 3px; font-size: 90%; }
+  .md table { border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+  .md th, .md td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
+  .md .math { display: block; text-align: center; font-family: ui-monospace, monospace;
+    background: #f3f5f8; padding: 6px; border-radius: 4px; margin: 8px 0; }
+  .cell { margin: 14px 0; border: 1px solid #dde3ea; border-radius: 8px; overflow: hidden; }
+  .cell .src {
+    width: 100%; border: 0; padding: 12px 14px; font: 13px/1.5 ui-monospace, SFMono-Regular,
+      Menlo, Consolas, monospace; background: #1e2733; color: #e6edf3;
+    resize: vertical; white-space: pre; overflow-x: auto; tab-size: 4;
+  }
+  .cell .bar { display: flex; align-items: center; gap: 10px; padding: 6px 10px;
+    background: #eef1f4; border-top: 1px solid #dde3ea; font-size: 12px; }
+  .cell button { font: inherit; font-size: 12px; padding: 3px 12px; border-radius: 5px;
+    border: 1px solid #3a72c4; background: #3a72c4; color: #fff; cursor: pointer; }
+  .cell button:disabled { opacity: .5; cursor: default; }
+  .cell .out { margin: 0; padding: 10px 14px; font: 12.5px/1.5 ui-monospace, monospace;
+    white-space: pre-wrap; overflow-x: auto; background: #fff; }
+  .cell .out.err { background: #fdecea; color: #7a1c12; }
+  .cell .out .result { color: #0b6b3a; }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #dde3ea; }
+  .badge.ok { background: #cdeccd; } .badge.err { background: #f5c6c0; }
+  footer { max-width: 900px; margin: 0 auto; padding: 0 24px 40px; font-size: 12px; color: #667; }
+  a { color: #3a72c4; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0f1620; color: #d7dee7; }
+    .md code { background: #22303f; } .md .math { background: #1a2330; }
+    .cell { border-color: #2a3646; } .cell .bar { background: #16202c; border-color: #2a3646; }
+    .cell .out { background: #0f1620; } .cell .out.err { background: #2a1512; color: #f3b5ac; }
+    .md th, .md td { border-color: #33414f; } .badge { background: #22303f; }
+    #status { background: #2a2410; border-color: #5a4f1e; }
+    #status.ready { background: #12261a; border-color: #285a34; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>K_𝖖-algebras — live worked examples</h1>
+  <p>The pure-Python <code>KAlgebra</code> package running entirely in your browser
+     (Pyodide / WebAssembly). No install, no server — the real library computes here.</p>
+</header>
+<main>
+  <div id="status">Starting…</div>
+  <div id="cells"></div>
+</main>
+<footer>
+  Runs the exact <code>examples.ipynb</code> from the public <code>KAlgebra</code> package,
+  executed cell-by-cell in a Pyodide kernel. Edit any code cell and press <b>Run</b> to
+  re-execute. Source and outputs are computed locally in your browser.
+</footer>
+
+<script>
+"use strict";
+
+const statusEl = document.getElementById("status");
+const cellsEl = document.getElementById("cells");
+function setStatus(msg, kind) {
+  statusEl.textContent = msg;
+  statusEl.className = kind || "";
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+
+// --- Minimal Markdown -> HTML (covers what the notebook uses) --------------
+function mdToHtml(md) {
+  const lines = md.split("\n");
+  let html = "", i = 0;
+  const inline = t => escapeHtml(t)
+    .replace(/`([^`]+)`/g, (_, c) => "<code>" + c + "</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/(?<![\w*])\*([^*\n]+)\*(?![\w*])/g, "<i>$1</i>");
+  while (i < lines.length) {
+    let line = lines[i];
+    if (/^```/.test(line)) {                                   // fenced code
+      i++; let code = [];
+      while (i < lines.length && !/^```/.test(lines[i])) { code.push(lines[i]); i++; }
+      i++; html += "<pre class='out'>" + escapeHtml(code.join("\n")) + "</pre>"; continue;
+    }
+    if (/^\$\$/.test(line)) {                                  // display math (raw)
+      let m = [line.replace(/^\$\$/, "")];
+      while (i < lines.length && !/\$\$\s*$/.test(lines[i]) ) { i++; if (i<lines.length) m.push(lines[i]); }
+      let joined = m.join(" ").replace(/\$\$\s*$/, "");
+      i++; html += "<div class='math'>" + escapeHtml(joined.trim()) + "</div>"; continue;
+    }
+    let h = /^(#{1,4})\s+(.*)$/.exec(line);
+    if (h) { const n = h[1].length; html += `<h${n}>` + inline(h[2]) + `</h${n}>`; i++; continue; }
+    if (/^\s*\|.*\|\s*$/.test(line)) {                          // table
+      const rows = [];
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) { rows.push(lines[i]); i++; }
+      const cells = r => r.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+      let t = "<table>";
+      rows.forEach((r, idx) => {
+        if (idx === 1 && /^[\s|:-]+$/.test(r)) return;          // separator row
+        const tag = idx === 0 ? "th" : "td";
+        t += "<tr>" + cells(r).map(c => `<${tag}>` + inline(c) + `</${tag}>`).join("") + "</tr>";
+      });
+      html += t + "</table>"; continue;
+    }
+    if (/^\s*[-*]\s+/.test(line)) {                             // unordered list
+      let items = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+        items.push("<li>" + inline(lines[i].replace(/^\s*[-*]\s+/, "")) + "</li>"); i++;
+      }
+      html += "<ul>" + items.join("") + "</ul>"; continue;
+    }
+    if (line.trim() === "") { i++; continue; }
+    let para = [];                                             // paragraph
+    while (i < lines.length && lines[i].trim() !== "" && !/^(#{1,4}\s|```|\s*\||\s*[-*]\s|\$\$)/.test(lines[i])) {
+      para.push(lines[i]); i++;
+    }
+    html += "<p>" + inline(para.join(" ")) + "</p>";
+  }
+  return html;
+}
+
+// --- Notebook rendering + execution ----------------------------------------
+let pyodide = null, runCell = null;
+const codeCells = [];   // {textarea, outEl, badgeEl}
+
+function renderNotebook(nb) {
+  for (const cell of nb.cells) {
+    const src = (cell.source || []).join("");
+    if (cell.cell_type === "markdown") {
+      const div = document.createElement("div");
+      div.className = "md";
+      div.innerHTML = mdToHtml(src);
+      cellsEl.appendChild(div);
+    } else if (cell.cell_type === "code") {
+      const wrap = document.createElement("div");
+      wrap.className = "cell";
+      const ta = document.createElement("textarea");
+      ta.className = "src";
+      ta.value = src;
+      ta.rows = Math.min(20, Math.max(2, src.split("\n").length));
+      ta.spellcheck = false;
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      const btn = document.createElement("button");
+      btn.textContent = "Run";
+      btn.disabled = true;
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = "not run";
+      bar.appendChild(btn); bar.appendChild(badge);
+      const out = document.createElement("pre");
+      out.className = "out";
+      out.style.display = "none";
+      wrap.appendChild(ta); wrap.appendChild(bar); wrap.appendChild(out);
+      cellsEl.appendChild(wrap);
+      const rec = { textarea: ta, outEl: out, badgeEl: badge, btn };
+      btn.addEventListener("click", () => execOne(rec));
+      codeCells.push(rec);
+    }
+  }
+}
+
+function execOne(rec) {
+  if (!runCell) return;
+  const res = runCell(rec.textarea.value);
+  const [stdout, resultRepr, err] = res.toJs();
+  res.destroy();
+  rec.outEl.style.display = "block";
+  if (err) {
+    rec.outEl.className = "out err";
+    rec.outEl.textContent = err;
+    rec.badgeEl.textContent = "error"; rec.badgeEl.className = "badge err";
+    return false;
+  }
+  rec.outEl.className = "out";
+  let html = escapeHtml(stdout);
+  if (resultRepr) {
+    if (html && !html.endsWith("\n")) html += "\n";
+    html += "<span class='result'>" + escapeHtml(resultRepr) + "</span>";
+  }
+  rec.outEl.innerHTML = html || "<i>(no output)</i>";
+  rec.badgeEl.textContent = "ok"; rec.badgeEl.className = "badge ok";
+  return true;
+}
+
+const RUNNER = `
+import ast, io, contextlib, traceback
+_NS = {"__name__": "__main__"}
+def _run_cell(src):
+    out = io.StringIO()
+    mod = ast.parse(src)
+    trailing = mod.body.pop() if (mod.body and isinstance(mod.body[-1], ast.Expr)) else None
+    result = None
+    try:
+        with contextlib.redirect_stdout(out):
+            if mod.body:
+                exec(compile(mod, "<cell>", "exec"), _NS)
+            if trailing is not None:
+                result = eval(compile(ast.Expression(trailing.value), "<cell>", "eval"), _NS)
+    except Exception:
+        return (out.getvalue(), "", traceback.format_exc())
+    return (out.getvalue(), "" if result is None else repr(result), "")
+`;
+
+async function main() {
+  try {
+    setStatus("Loading Pyodide (Python in WebAssembly)…");
+    pyodide = await loadPyodide();
+
+    setStatus("Fetching the KAlgebra source bundle…");
+    const zip = await (await fetch("./kalgebra-src.zip")).arrayBuffer();
+    pyodide.unpackArchive(zip, "zip");   // extracts src/ into the working directory
+
+    setStatus("Fetching the notebook…");
+    const nb = await (await fetch("./examples.ipynb")).json();
+    renderNotebook(nb);
+
+    pyodide.runPython(RUNNER);
+    runCell = pyodide.globals.get("_run_cell");
+
+    setStatus("Running the worked examples…");
+    let ok = 0, failed = 0;
+    for (const rec of codeCells) {
+      rec.btn.disabled = false;
+      const good = execOne(rec);
+      good ? ok++ : failed++;
+      await new Promise(r => setTimeout(r, 0));   // let the UI paint
+    }
+    if (failed === 0)
+      setStatus(`Ready — all ${ok} code cells ran in your browser.`, "ready");
+    else
+      setStatus(`Ran with ${failed} error(s); ${ok} cells ok.`, "error");
+  } catch (e) {
+    setStatus("Failed to start: " + (e && e.message ? e.message : e), "error");
+    throw e;
+  }
+}
+main();
+</script>
+</body>
+</html>
