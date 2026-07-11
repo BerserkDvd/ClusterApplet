@@ -25,8 +25,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      # Root app (the original ClusterApplet) -> dist/
       - run: npm install
       - run: npm run build
+
+      # BPS applet (KAlgebra Applet Suite, testbed copy) -> dist/bps/
+      - name: Build BPS applet
+        working-directory: bps
+        run: npm install && npm run build
+      - name: Assemble /bps/ into the Pages output
+        run: mkdir -p dist/bps && cp -r bps/dist/. dist/bps/
+
       - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3
         with:
