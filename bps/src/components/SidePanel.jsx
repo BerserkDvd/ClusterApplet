@@ -3,7 +3,7 @@ import { addArrow, toConstructorPayload, toPythonSnippet, validateQuiver, flavou
 
 // Right-hand inspector: exchange-matrix editor, the flavour lattice
 // Γ_f = ker(B), and the live BPSKAlgebra(...) constructor payload.
-export default function SidePanel({ quiver, onChange, onCopy }) {
+export default function SidePanel({ quiver, onChange, onCopy, mutLog = [], spectrum = { complete: false, specCharges: [] }, onUndoMutation, onClearMutations }) {
   const v = validateQuiver(quiver);
   const n = quiver.nodes.length;
   const f = n ? flavourRank(quiver) : 0;
@@ -22,6 +22,27 @@ export default function SidePanel({ quiver, onChange, onCopy }) {
             ? `⚠ ${v.errors[0]}${v.errors.length > 1 ? ` (+${v.errors.length - 1} more)` : ""}`
             : `⚠ ${v.warnings[0]}`}
         </div>
+      )}
+
+      {mutLog.length > 0 && (
+        <section>
+          <h3>Mutation sequence ({mutLog.length})</h3>
+          <p className="hint">μ<sub>k</sub> = mutation at node γ<sub>k</sub> (⁻¹ = inverse). Read left→right.</p>
+          <div className="mut-seq">
+            {mutLog.map((s, i) => (
+              <span key={i} className="mut-step">μ<sub>{s.index + 1}</sub>{s.dir < 0 ? "⁻¹" : ""}</span>
+            ))}
+          </div>
+          {spectrum.complete && (
+            <div className="banner ok">✓ Spectrum generator found — all charges negated.
+              <div className="mono small" style={{ marginTop: 4 }}>S = {spectrum.specCharges.map((c) => `E_q(X_(${c.join(",")}))`).join(" · ")}</div>
+            </div>
+          )}
+          <div className="row">
+            <button onClick={onUndoMutation}>↶ Undo</button>
+            <button onClick={onClearMutations}>Clear</button>
+          </div>
+        </section>
       )}
 
       <section>

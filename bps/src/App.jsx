@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import QuiverCanvas from "./components/QuiverCanvas.jsx";
 import SidePanel from "./components/SidePanel.jsx";
 import PresetTree from "./components/PresetTree.jsx";
-import { makeQuiver, emptyQuiver, renameQuiver, removeNode, autoArrange, nodeLabel } from "./model/quiver.js";
+import { makeQuiver, emptyQuiver, renameQuiver, removeNode, autoArrange, nodeLabel, mutate, applyMutations, spectrumStatus, sameMatrix } from "./model/quiver.js";
 import { presetByKey } from "./model/presets.js";
 import { toJSONString, toShareURL, parseImport, quiverFromLocationHash } from "./model/share.js";
 
@@ -10,6 +10,8 @@ const DEFAULT_KEY = "a1a2";
 
 export default function App() {
   const [quiver, setQuiver] = useState(() => quiverFromLocationHash() || makeQuiver(presetByKey(DEFAULT_KEY)));
+  const [mutBase, setMutBase] = useState(quiver);   // quiver before the current mutation sequence
+  const [mutLog, setMutLog] = useState([]);          // [{index, dir}]
   const [presetKey, setPresetKey] = useState(DEFAULT_KEY);
   const [mode, setMode] = useState("arrange");
   const [selected, setSelected] = useState(-1);
@@ -26,13 +28,42 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  function newBaseQuiver(nq) {
+    setQuiver(nq); setMutBase(nq); setMutLog([]);
+  }
+
   function loadPreset(key) {
     setPresetKey(key);
     const p = presetByKey(key);
-    setQuiver(p && p.key === "empty" ? emptyQuiver() : makeQuiver(p));
+    newBaseQuiver(p && p.key === "empty" ? emptyQuiver() : makeQuiver(p));
     setSelected(-1);
     setPresetsOpen(false);
   }
+
+  // structural (B / node-count) edits from Construct start a fresh mutation base
+  function handleChange(newQ) {
+    setQuiver(newQ);
+    if (newQ.nodes.length !== quiver.nodes.length || !sameMatrix(newQ.B, quiver.B)) {
+      setMutBase(newQ); setMutLog([]);
+    }
+  }
+
+  function doMutate(k, dir) {
+    const newLog = [...mutLog, { index: k, dir }];
+    const nq = mutate(quiver, k, dir);
+    const st = spectrumStatus(mutBase, newLog);
+    if (st.complete) nq.spec = { seq: newLog.map((s) => s.index), charges: st.specCharges, method: "mutation" };
+    setQuiver(nq);
+    setMutLog(newLog);
+    if (st.complete) setToast("Spectrum generator found!");
+  }
+
+  function undoMutation() {
+    const newLog = mutLog.slice(0, -1);
+    setQuiver(applyMutations(mutBase, newLog));
+    setMutLog(newLog);
+  }
+  function clearMutations() { setQuiver(mutBase); setMutLog([]); }
 
   async function copy(text, what) {
     try { await navigator.clipboard.writeText(text); setToast(`Copied ${what}`); }
@@ -42,7 +73,7 @@ export default function App() {
   function doImport() {
     try {
       const q = parseImport(importText);
-      setQuiver(q); setPresetKey(""); setImportOpen(false); setImportText(""); setImportErr(""); setToast("Imported");
+      newBaseQuiver(q); setPresetKey(""); setImportOpen(false); setImportText(""); setImportErr(""); setToast("Imported");
     } catch (e) { setImportErr(String(e.message || e)); }
   }
 
@@ -54,7 +85,7 @@ export default function App() {
 
   function resetQuiver() {
     if (presetKey && presetByKey(presetKey)) loadPreset(presetKey);
-    else { setQuiver(emptyQuiver()); setSelected(-1); setToast("Reset to empty"); }
+    else { newBaseQuiver(emptyQuiver()); setSelected(-1); setToast("Reset to empty"); }
   }
 
   function doAutoArrange() {
@@ -64,6 +95,8 @@ export default function App() {
     setToast("Auto-arranged");
   }
 
+  const spectrum = spectrumStatus(mutBase, mutLog);
+
   return (
     <div className="app">
       <header className="toolbar">
@@ -71,7 +104,7 @@ export default function App() {
           <span className="logo">K𝖖</span>
           <div>
             <div className="title">KAlgebra Applets</div>
-            <div className="subtitle">BPS quiver input · v0.8</div>
+            <div className="subtitle">BPS quiver input · v0.9</div>
           </div>
         </div>
 
@@ -87,6 +120,8 @@ export default function App() {
             title="Drag nodes to reposition">Move</button>
           <button className={mode === "construct" ? "on" : ""} onClick={() => setMode("construct")}
             title="Drag between nodes = arrow · click empty = add node · click node = select · right-click = delete">Construct</button>
+          <button className={mode === "mutate" ? "on" : ""} onClick={() => setMode("mutate")}
+            title="Left-click a node = mutation μ_k · right-click = inverse μ_k⁻¹">Mutate</button>
         </div>
 
         {selected >= 0 && selected < quiver.nodes.length && (
@@ -105,14 +140,17 @@ export default function App() {
 
       <main className="workspace">
         <div className="canvas-wrap" ref={canvasRef}>
-          <QuiverCanvas quiver={quiver} onChange={setQuiver} mode={mode} selected={selected} onSelect={setSelected} />
+          <QuiverCanvas quiver={quiver} onChange={handleChange} onMutate={doMutate} mode={mode} selected={selected} onSelect={setSelected} />
           <div className="canvas-legend">
             {mode === "construct"
               ? "Construct: drag between nodes = draw an arrow (drag the reverse to remove) · click empty = add node · click node = select · right-click = delete"
+              : mode === "mutate"
+              ? "Mutate: left-click a node = mutation μ_k · right-click = inverse μ_k⁻¹ · node charges shown below; all negated ⇒ spectrum generator"
               : "Move: drag a node to reposition (display only)"}
           </div>
         </div>
-        <SidePanel quiver={quiver} onChange={setQuiver} onCopy={copy} />
+        <SidePanel quiver={quiver} onChange={handleChange} onCopy={copy}
+          mutLog={mutLog} spectrum={spectrum} onUndoMutation={undoMutation} onClearMutations={clearMutations} />
       </main>
 
       {presetsOpen && (

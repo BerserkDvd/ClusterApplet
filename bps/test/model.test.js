@@ -4,6 +4,7 @@ import {
   makeQuiver, validateQuiver, toConstructorPayload, toPythonSnippet,
   addArrow, addNode, removeNode, identityCharges, flavourRank, matrixRank,
   gaugeIndices, gaugeBlock, framingRows, autoArrange,
+  mutate, applyMutations, spectrumStatus,
 } from "../src/model/quiver.js";
 import { presetByKey, presetTree, PRESETS } from "../src/model/presets.js";
 import { toWireObject, objectToQuiver, parseImport, toShareURL } from "../src/model/share.js";
@@ -115,6 +116,27 @@ test("autoArrange repositions within the box and preserves structure", () => {
   const xs = a.nodes.map((nd) => nd.x), ys = a.nodes.map((nd) => nd.y);
   assert.ok(Math.max(...xs) - Math.min(...xs) < 472, "compact in x (not edge-to-edge)");
   assert.ok(Math.max(...ys) - Math.min(...ys) < 332, "compact in y (not edge-to-edge)");
+});
+
+test("mutation: forward then inverse at the same node is the identity", () => {
+  const q = makeQuiver(presetByKey("su3-pure"));
+  const back = mutate(mutate(q, 2, 1), 2, -1);
+  assert.deepEqual(back.B, q.B);
+  assert.deepEqual(back.nodes.map((n) => n.charge), q.nodes.map((n) => n.charge));
+});
+
+test("mutation: Kronecker (pure SU(2)) negates via μ0·μ1 -> spectrum generator", () => {
+  const q = makeQuiver(presetByKey("su2-pure"));   // B = [[0,2],[-2,0]]
+  const log = [{ index: 0, dir: 1 }, { index: 1, dir: 1 }];
+  const out = applyMutations(q, log);
+  assert.deepEqual(out.nodes.map((n) => n.charge), [[-1, 0], [0, -1]]); // both negated
+  const st = spectrumStatus(q, log);
+  assert.equal(st.complete, true);
+  assert.deepEqual(st.specCharges, [[1, 0], [0, 1]]);
+});
+
+test("mutation: empty log is not a spectrum generator", () => {
+  assert.equal(spectrumStatus(makeQuiver(presetByKey("a1a2")), []).complete, false);
 });
 
 test("preset tree nests folders and reaches every preset as a leaf", () => {

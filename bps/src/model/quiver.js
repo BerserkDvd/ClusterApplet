@@ -197,6 +197,67 @@ export function setNodeCharge(q, index, charge) {
 
 export function renameQuiver(q, name) { return { ...cloneQuiver(q), name }; }
 
+// ── Cluster mutation at node k (the BPS-quiver mutation) ──
+// Flips the arrows at k (Fomin–Zelevinsky rule; direction-independent) and
+// updates the node charges.  `dir = +1` is the FORWARD mutation μ_k, `dir = -1`
+// the INVERSE μ_k⁻¹ — they differ only in the charge-update sign and are
+// genuine inverses: mutate(mutate(q,k,+1),k,-1) == q.  A pure combinatorial
+// operation on (B, charges) — NOT the K-algebra math.
+export function mutate(q, k, dir = 1) {
+  const r = cloneQuiver(q);
+  const n = r.nodes.length;
+  const B = q.B;
+  const Bn = zeroMatrix(n);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    if (i === k || j === k) Bn[i][j] = -B[i][j];
+    else Bn[i][j] = B[i][j] + Math.max(B[i][k], 0) * Math.max(B[k][j], 0) - Math.max(-B[i][k], 0) * Math.max(-B[k][j], 0);
+  }
+  r.B = Bn;
+  const ck = [...q.nodes[k].charge];
+  for (let j = 0; j < n; j++) {
+    if (j === k) { r.nodes[j] = { ...r.nodes[j], charge: ck.map((c) => (c ? -c : 0)) }; continue; }
+    const co = dir > 0 ? Math.max(B[j][k], 0) : Math.max(-B[j][k], 0);
+    if (co > 0) r.nodes[j] = { ...r.nodes[j], charge: r.nodes[j].charge.map((c, i) => c + co * ck[i]) };
+  }
+  r.spec = null;
+  return r;
+}
+
+// A mutation log is an ordered list of { index, dir } steps.
+export function applyMutations(base, log) {
+  return log.reduce((q, s) => mutate(q, s.index, s.dir), base);
+}
+
+export function sameMatrix(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].length !== b[i].length) return false;
+    for (let j = 0; j < a[i].length; j++) if (a[i][j] !== b[i][j]) return false;
+  }
+  return true;
+}
+
+// A spectrum generator is found when every node charge has been NEGATED
+// (as a multiset) relative to the base quiver's charges.  Returns
+// { complete, specCharges } where specCharges is the ordered list of the BPS
+// charges S = ∏ E_q(X_γ) collected along the mutation sequence.
+export function spectrumStatus(baseQ, log) {
+  const n = baseQ.nodes.length;
+  if (n === 0) return { complete: false, specCharges: [] };
+  const negSet = new Set(baseQ.nodes.map((nd) => nd.charge.map((c) => -c).join(",")));
+  // collect the BPS charge of the mutated node at each step, in the running quiver
+  const specCharges = [];
+  let cur = baseQ;
+  for (const s of log) {
+    specCharges.push([...cur.nodes[s.index].charge]);
+    cur = mutate(cur, s.index, s.dir);
+  }
+  const curSet = new Set(cur.nodes.map((nd) => nd.charge.join(",")));
+  let complete = log.length > 0 && curSet.size === negSet.size;
+  if (complete) for (const s of negSet) if (!curSet.has(s)) { complete = false; break; }
+  return { complete, specCharges };
+}
+
 function unit(len, k) { const v = Array(len).fill(0); if (k < len) v[k] = 1; return v; }
 
 // ── Kind helpers + per-kind labels ──

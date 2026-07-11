@@ -10,7 +10,7 @@ import { addNode, moveNode, removeNode, addArrow, arrowsFromB, nodeLabel } from 
 //               · right-click a node = delete it
 //   ARRANGE   — drag nodes to reposition (does not touch B).
 // The matrix panel mirrors the arrows for precise/bulk edits.
-export default function QuiverCanvas({ quiver, onChange, mode, selected, onSelect }) {
+export default function QuiverCanvas({ quiver, onChange, onMutate, mode, selected, onSelect }) {
   const svgRef = useRef(null);
   const [hover, setHover] = useState(-1);
   const [drag, setDrag] = useState(null);      // arrange: {index,dx,dy}
@@ -32,6 +32,10 @@ export default function QuiverCanvas({ quiver, onChange, mode, selected, onSelec
   function onPointerDown(e) {
     const { x, y } = pt(e);
     const i = nodeAt(x, y);
+    if (mode === "mutate") {
+      if (i >= 0) onMutate?.(i, e.button === 2 ? -1 : 1); // left = forward, right = inverse
+      return;
+    }
     if (mode === "arrange") {
       if (i >= 0) {
         setDrag({ index: i, dx: quiver.nodes[i].x - x, dy: quiver.nodes[i].y - y });
@@ -83,7 +87,7 @@ export default function QuiverCanvas({ quiver, onChange, mode, selected, onSelec
     <svg
       ref={svgRef}
       className="quiver-canvas"
-      style={{ background: C.bg, touchAction: "none", cursor: mode === "arrange" ? "grab" : "crosshair" }}
+      style={{ background: C.bg, touchAction: "none", cursor: mode === "arrange" ? "grab" : mode === "mutate" ? "pointer" : "crosshair" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -124,6 +128,11 @@ export default function QuiverCanvas({ quiver, onChange, mode, selected, onSelec
             )}
             <text x={nd.x} y={nd.y + 5} textAnchor="middle" fontSize="13" fontWeight="700"
               fill={C.text} style={{ pointerEvents: "none", userSelect: "none" }}>{label}</text>
+            {mode === "mutate" && (
+              <text x={nd.x} y={nd.y + NODE_R + 15} textAnchor="middle" fontSize="11" fontFamily="ui-monospace, monospace"
+                fill={nd.charge.every((c) => c <= 0) && nd.charge.some((c) => c < 0) ? C.selected : C.dim}
+                style={{ pointerEvents: "none", userSelect: "none" }}>({nd.charge.join(",")})</text>
+            )}
           </g>
         );
       })}
