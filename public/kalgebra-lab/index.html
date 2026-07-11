@@ -47,6 +47,11 @@
   .badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #dde3ea; }
   .badge.ok { background: #cdeccd; } .badge.err { background: #f5c6c0; }
   .badge.run { background: #ffe6a8; }
+  #toolbar { display: flex; gap: 12px; align-items: center; margin: 0 0 16px; }
+  #toolbar button { font: inherit; font-size: 13px; padding: 6px 16px; border-radius: 6px;
+    border: 1px solid #2f8f4e; background: #2f8f4e; color: #fff; cursor: pointer; }
+  #toolbar button:disabled { opacity: .5; cursor: default; }
+  #build { font-size: 12px; color: #889; }
   footer { max-width: 900px; margin: 0 auto; padding: 0 24px 40px; font-size: 12px; color: #667; }
   a { color: #3a72c4; }
   @media (prefers-color-scheme: dark) {
@@ -68,17 +73,25 @@
 </header>
 <main>
   <div id="status">Starting…</div>
+  <div id="toolbar">
+    <button id="runall" disabled>▶ Run all cells</button>
+    <span id="build">build: WORKER-2 · kernel on a background thread</span>
+  </div>
   <div id="cells"></div>
 </main>
 <footer>
   Runs the exact <code>examples.ipynb</code> from the public <code>KAlgebra</code> package,
   executed cell-by-cell in a Pyodide kernel on a Web Worker (so the page stays responsive).
-  Edit any code cell and press <b>Run</b> to re-execute. First load fetches Pyodide (~10 MB)
-  and the library once, then it is browser-cached.
+  When the kernel is ready, press <b>Run all cells</b> or any cell's <b>Run</b> button; edit a
+  cell and re-run it too. First load fetches Pyodide (~10 MB) and the library once, then it is
+  browser-cached. Nothing runs until you click.
 </footer>
 
 <script>
 "use strict";
+
+const BUILD = "WORKER-2";           // visible build id — tells us which version loaded
+console.log("kalgebra-lab build:", BUILD);
 
 const statusEl = document.getElementById("status");
 const cellsEl = document.getElementById("cells");
@@ -202,16 +215,26 @@ async function execOne(rec) {
   return displayResult(rec, m);
 }
 
-async function autoRunAll() {
-  kernelReady = true;
-  for (const rec of codeCells) rec.btn.disabled = false;
+let running = false;
+async function runAll() {
+  if (!kernelReady || running) return;
+  running = true;
+  const rb = document.getElementById("runall"); rb.disabled = true;
   let ok = 0, failed = 0;
   for (let i = 0; i < codeCells.length; i++) {
-    setStatus(`Running the worked examples… (cell ${i + 1}/${codeCells.length})`);
+    setStatus(`Running… (cell ${i + 1}/${codeCells.length})`);
     (await execOne(codeCells[i])) ? ok++ : failed++;
   }
-  if (failed === 0) setStatus(`Ready — all ${ok} code cells ran in your browser.`, "ready");
-  else setStatus(`Ran with ${failed} error(s); ${ok} ok. Edit a cell and press Run to retry.`, "error");
+  if (failed === 0) setStatus(`Done — all ${ok} code cells ran in your browser. (${BUILD})`, "ready");
+  else setStatus(`Ran with ${failed} error(s); ${ok} ok. (${BUILD})`, "error");
+  rb.disabled = false; running = false;
+}
+
+function onKernelReady() {
+  kernelReady = true;
+  for (const rec of codeCells) rec.btn.disabled = false;
+  document.getElementById("runall").disabled = false;
+  setStatus(`Kernel ready (${BUILD}). Press “Run all cells”, or run any cell individually.`, "ready");
 }
 
 function startWorker() {
@@ -219,7 +242,7 @@ function startWorker() {
   worker.onmessage = (e) => {
     const m = e.data || {};
     if (m.type === "status") setStatus(m.msg);
-    else if (m.type === "ready") autoRunAll();
+    else if (m.type === "ready") onKernelReady();
     else if (m.type === "fatal") setStatus("Kernel failed to start: " + m.msg, "error");
     else if (m.type === "result") { const r = pending.get(m.id); if (r) { pending.delete(m.id); r(m); } }
   };
@@ -232,7 +255,8 @@ async function boot() {
     setStatus("Loading the notebook…");
     const nb = await (await fetch("./examples.ipynb")).json();
     renderNotebook(nb);
-    setStatus("Starting the Python kernel on a background thread…");
+    document.getElementById("runall").addEventListener("click", runAll);
+    setStatus(`Rendered (${BUILD}). Starting the Python kernel on a background thread…`);
     startWorker();
   } catch (e) {
     setStatus("Failed to load: " + ((e && e.message) ? e.message : e), "error");
