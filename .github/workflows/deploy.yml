@@ -36,6 +36,13 @@ jobs:
       - name: Assemble /bps/ into the Pages output
         run: mkdir -p dist/bps && cp -r bps/dist/. dist/bps/
 
+      # Skein applet (KAlgebra Applet Suite, testbed copy) -> dist/skein/
+      - name: Build Skein applet
+        working-directory: skein
+        run: npm install && npm run build
+      - name: Assemble /skein/ into the Pages output
+        run: mkdir -p dist/skein && cp -r skein/dist/. dist/skein/
+
       - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3
         with:
