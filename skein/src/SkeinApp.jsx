@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import TriangulationCanvas from "./components/TriangulationCanvas.jsx";
 import TriangulationPanel from "./components/TriangulationPanel.jsx";
 import BuildPanel from "./components/BuildPanel.jsx";
+import SkeinComputePanel from "./components/SkeinComputePanel.jsx";
+import { onKernelStatus, startKernel } from "./compute/kernel.js";
+import { recognizeSkeinKAlgebra } from "./model/skein_recognize.js";
 import { flip, renameTriangulation, canFlip, vertices } from "./model/triangulation.js";
 import {
   attachTriangle, selfGlue, cut, addPuncture, removePuncture,
@@ -34,12 +37,17 @@ export default function SkeinApp() {
   const [importErr, setImportErr] = useState("");
   const [polyN, setPolyN] = useState(5);
   const [toast, setToast] = useState("");
+  const [showCompute, setShowCompute] = useState(false);
+  const [kernel, setKernel] = useState({ status: "idle", ready: false, statusMsg: "" });
 
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 2200);
     return () => clearTimeout(t);
   }, [toast]);
+  useEffect(() => onKernelStatus(setKernel), []);
+
+  const rec = useMemo(() => recognizeSkeinKAlgebra(tri), [tri]);
 
   function clearSel() { setSelEdges([]); setSelTriangle(-1); }
 
@@ -166,6 +174,11 @@ export default function SkeinApp() {
           ))}
         </div>
 
+        <button className={showCompute ? "on" : ""} title={rec.ok ? `Connect to ${rec.ctor} and run the real K_𝖖 engine` : "Connect to the real SkeinKAlgebra (polygon disks)"}
+          onClick={() => { const n = !showCompute; setShowCompute(n); if (n) startKernel(); }}>
+          🔗 SkeinKAlgebra{rec.ok ? "" : " ·"}
+        </button>
+
         <div className="spacer" />
 
         <button onClick={() => { setImportOpen(true); setImportErr(""); }}>Import…</button>
@@ -189,6 +202,7 @@ export default function SkeinApp() {
         </div>
 
         <div className="panel-stack">
+          {showCompute && <SkeinComputePanel rec={rec} kernel={kernel} />}
           {mode === "build" && (
             <BuildPanel tri={tri} selFree={selFree} selInternal={selInternal} selTriangle={selTriangle}
               interiorPunctures={interiorPunctures} build={build} />
