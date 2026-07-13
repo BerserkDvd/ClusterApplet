@@ -5,7 +5,7 @@ import { addArrow, toConstructorPayload, toPythonSnippet, validateQuiver, flavou
 // Γ_f = ker(B), and the live BPSKAlgebra(...) constructor payload.
 export default function SidePanel({
   quiver, onChange, onCopy, mutLog = [], spectrum = { complete: false, specCharges: [] },
-  onUndoMutation, onClearMutations,
+  onUndoMutation, onClearMutations, necklace = null, onFollowSpec, mode = "arrange",
   kernel = { status: "idle" }, computing = false, exactS = null, computeMsg = "",
   onFindSpecBFS, onFindSExact, onFindSpec, onCancel,
   onDiagnostics, diagJson = "", onCopyDiag,
@@ -29,6 +29,37 @@ export default function SidePanel({
             : `⚠ ${v.warnings[0]}`}
         </div>
       )}
+
+      {necklace && (() => {
+        const active = mode === "mutate" && necklace.following;
+        return (
+          <section>
+            <h3>Spec necklace {necklace.hasSeq && <span className="badge">{active ? "following" : mode === "mutate" ? "off-spec" : "ready"}</span>}</h3>
+            <p className="hint">
+              {necklace.charges.length} BPS states{necklace.lap > 0 ? ` · lap ${necklace.lap + 1}` : ""}.{" "}
+              {necklace.hasSeq
+                ? "Enter Mutate mode and click the ★ head node to walk the sequence — it cycles (ρ² over two laps)."
+                : "No mutation sequence — click the green nodes in Mutate mode to discover it."}
+            </p>
+            <div className="necklace">
+              {necklace.charges.map((c, t) => {
+                const isHead = active && necklace.hasSeq && t === necklace.pos;
+                const done = active && t < necklace.pos;
+                return (
+                  <span key={t} className={`bead${isHead ? " head" : done ? " done" : ""}`}>
+                    {isHead ? "★ " : ""}γ<sub>{t + 1}</sub>&nbsp;({c.join(",")})
+                  </span>
+                );
+              })}
+            </div>
+            {onFollowSpec && (
+              <div className="row" style={{ marginTop: 6 }}>
+                <button onClick={onFollowSpec} title="Reset to the base quiver and walk the spec in Mutate mode">▶ Follow from start</button>
+              </div>
+            )}
+          </section>
+        );
+      })()}
 
       {mutLog.length > 0 && (
         <section>

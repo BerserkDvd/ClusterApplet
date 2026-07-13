@@ -10,12 +10,13 @@ import { addNode, moveNode, removeNode, addArrow, arrowsFromB, nodeLabel } from 
 //               · right-click a node = delete it
 //   ARRANGE   — drag nodes to reposition (does not touch B).
 // The matrix panel mirrors the arrows for precise/bulk edits.
-export default function QuiverCanvas({ quiver, onChange, onMutate, mode, selected, onSelect }) {
+export default function QuiverCanvas({ quiver, onChange, onMutate, mode, selected, onSelect, greenNodes = [], headNode = -1 }) {
   const svgRef = useRef(null);
   const [hover, setHover] = useState(-1);
   const [drag, setDrag] = useState(null);      // arrange: {index,dx,dy}
   const [connect, setConnect] = useState(null); // construct: {from,cx,cy,moved}
   const arrows = arrowsFromB(quiver.B);
+  const greenSet = new Set(mode === "mutate" ? greenNodes : []);
 
   const pt = (e) => {
     const r = svgRef.current.getBoundingClientRect();
@@ -115,8 +116,22 @@ export default function QuiverCanvas({ quiver, onChange, onMutate, mode, selecte
         const stroke = isSel ? C.selected : isHover ? C.hover : framing ? C.framingStroke : C.nodeStroke;
         const label = nodeLabel(quiver, i).text;
         const s = NODE_R * 1.8;
+        const isHead = mode === "mutate" && i === headNode;
+        const isGreen = greenSet.has(i);
         return (
           <g key={nd.id}>
+            {/* live-discovery "green" admissible ring */}
+            {isGreen && !isHead && (
+              <circle cx={nd.x} cy={nd.y} r={NODE_R + 4} fill="none" stroke={C.green} strokeWidth="2.5"
+                strokeDasharray="4 4" opacity="0.85" />
+            )}
+            {/* guided head ring — the next node in the found spec sequence */}
+            {isHead && (
+              <circle cx={nd.x} cy={nd.y} r={NODE_R + 6} fill="none" stroke={C.head} strokeWidth="3">
+                <animate attributeName="r" values={`${NODE_R + 4};${NODE_R + 8};${NODE_R + 4}`} dur="1.4s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="1;0.55;1" dur="1.4s" repeatCount="indefinite" />
+              </circle>
+            )}
             {isSel && (framing
               ? <rect x={nd.x - s / 2 - 5} y={nd.y - s / 2 - 5} width={s + 10} height={s + 10} rx="5" fill="none" stroke={C.selected} strokeWidth="2" opacity="0.6" />
               : <circle cx={nd.x} cy={nd.y} r={NODE_R + 5} fill="none" stroke={C.selected} strokeWidth="2" opacity="0.6" />)}

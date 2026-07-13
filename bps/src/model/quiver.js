@@ -260,6 +260,79 @@ export function spectrumStatus(baseQ, log) {
 
 function unit(len, k) { const v = Array(len).fill(0); if (k < len) v[k] = 1; return v; }
 
+// ── Spec necklace: "green" admissibility, guided head, on-spec detection ──
+//
+// These drive the Mutate-tab guide.  They are purely combinatorial (on B and
+// charges); the real spectrum math stays in BPSKAlgebra.
+
+// Solve the square system A x = b by Gaussian elimination (partial pivoting).
+// Returns x, or null if singular.  (Float, tolerance-based — only used for the
+// green highlight, and only in the non-standard-basis case.)
+function solveLinear(A, b) {
+  const n = A.length;
+  const M = A.map((row, i) => [...row.map(Number), Number(b[i])]);
+  for (let col = 0; col < n; col++) {
+    let piv = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    if (Math.abs(M[piv][col]) < 1e-9) return null;
+    [M[col], M[piv]] = [M[piv], M[col]];
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const f = M[r][col] / M[col][col];
+      if (f) for (let c = col; c <= n; c++) M[r][c] -= f * M[col][c];
+    }
+  }
+  return M.map((row, i) => row[n] / row[i]);
+}
+
+// Coordinates c of the charge v in the original charge basis (v = Σ c_i orig[i]),
+// or null if v ∉ span.  Exact for the standard basis — the applet's charge
+// convention (every gauge γ_i starts as e_i) — where c = v.
+export function coneCoords(v, orig) {
+  const n = orig.length;
+  let identity = n === v.length;
+  for (let i = 0; i < n && identity; i++)
+    for (let r = 0; r < orig[i].length; r++) if (orig[i][r] !== (r === i ? 1 : 0)) { identity = false; break; }
+  if (identity) return [...v];
+  const At = Array.from({ length: v.length }, (_, r) => orig.map((o) => o[r])); // transpose(orig)
+  return solveLinear(At, v);
+}
+
+// The "green" nodes of the running quiver `cur`: those whose current charge is
+// still a NON-NEGATIVE combination of the base's original charges — exactly the
+// mutations the spectrum finder admits (positivity of the E_q factors).  Once
+// all charges are negated the set is empty (spectrum generator reached).
+export function greenNodes(cur, origCharges) {
+  const out = [];
+  for (let i = 0; i < cur.nodes.length; i++) {
+    if (cur.nodes[i].kind === "framing") continue;
+    const c = coneCoords(cur.nodes[i].charge, origCharges);
+    if (!c) continue;
+    if (c.every((x) => x >= -1e-6) && c.some((x) => x > 1e-6)) out.push(i);
+  }
+  return out;
+}
+
+// The guided head: the next node index the found sequence says to mutate,
+// read cyclically (necklace) so it keeps advancing past completion.
+export function guidedHead(seq, mutLogLen) {
+  if (!Array.isArray(seq) || seq.length === 0) return -1;
+  const N = seq.length;
+  return seq[((mutLogLen % N) + N) % N];
+}
+
+// Is the mutation log a forward prefix of the found sequence (cyclically)?  When
+// true, the walk is faithfully following the spec and the guided head is shown.
+export function onSpecPath(seq, log) {
+  if (!Array.isArray(seq) || seq.length === 0) return false;
+  const N = seq.length;
+  for (let t = 0; t < log.length; t++) {
+    if (log[t].dir < 0) return false;                 // guided walk is forward-only
+    if (log[t].index !== seq[t % N]) return false;
+  }
+  return true;
+}
+
 // ── Kind helpers + per-kind labels ──
 
 export function gaugeIndices(q) { return q.nodes.map((nd, i) => (nd.kind !== "framing" ? i : -1)).filter((i) => i >= 0); }

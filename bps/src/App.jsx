@@ -2,14 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import QuiverCanvas from "./components/QuiverCanvas.jsx";
 import SidePanel from "./components/SidePanel.jsx";
 import PresetTree from "./components/PresetTree.jsx";
-import { makeQuiver, emptyQuiver, renameQuiver, removeNode, autoArrange, nodeLabel, mutate, applyMutations, spectrumStatus, sameMatrix, toConstructorPayload } from "./model/quiver.js";
+import { makeQuiver, emptyQuiver, renameQuiver, removeNode, autoArrange, nodeLabel, mutate, applyMutations, spectrumStatus, sameMatrix, toConstructorPayload, greenNodes, guidedHead, onSpecPath } from "./model/quiver.js";
 import { presetByKey } from "./model/presets.js";
 import { toJSONString, toShareURL, parseImport, quiverFromLocationHash } from "./model/share.js";
 import { onKernelStatus, kernelStatus, killKernel } from "./compute/kernel.js";
 import { findSpectrumExact, findSpec, findSpecBFS, exportDiagnostics } from "./compute/bps.js";
 
 const DEFAULT_KEY = "a1a2";
-const APP_VERSION = "v0.14 (BFS spec-finder)";
+const APP_VERSION = "v0.15 (spec necklace)";
 
 export default function App() {
   const [quiver, setQuiver] = useState(() => quiverFromLocationHash() || makeQuiver(presetByKey(DEFAULT_KEY)));
@@ -31,6 +31,7 @@ export default function App() {
   const [exactS, setExactS] = useState(null);       // { terms, K } or null
   const [computeMsg, setComputeMsg] = useState("");
   const [diagJson, setDiagJson] = useState("");     // last diagnostics report (JSON string)
+  const [guideSpec, setGuideSpec] = useState(null); // { seq, charges } — the Mutate-tab spec guide
 
   useEffect(() => onKernelStatus(setKernel), []);
   // a computed S is stale once the arrows / node count change (moves are fine)
@@ -55,6 +56,16 @@ export default function App() {
     }
   }
 
+  // Commit a found spec: attach it to the quiver (payload + S section), make it
+  // the fresh mutation base, arm the Mutate-tab guide, and jump to Mutate mode so
+  // the head node is immediately highlighted for walking.
+  function commitFoundSpec(seq, charges, method) {
+    const nq = { ...quiver, spec: { seq: seq || [], charges, method } };
+    setQuiver(nq); setMutBase(nq); setMutLog([]);
+    setGuideSpec({ seq: seq || [], charges });
+    setMode("mutate");
+  }
+
   // Primary spec-finder: bidirectional BFS over the mutation graph (fast; no
   // build_S).  Writes both the found mutation sequence and the ordered spec.
   async function doFindSpecBFS() {
@@ -64,8 +75,8 @@ export default function App() {
       if (spec === null) {
         setComputeMsg("No negating sequence within depth 25 (wild/infinite chamber, or raise the depth).");
       } else {
-        setQuiver((q) => ({ ...q, spec: { seq: seq || [], charges: spec, method: "BFS" } }));
-        setToast(`Spec found (BFS) — ${spec.length} BPS states`);
+        commitFoundSpec(seq, spec, "BFS");
+        setToast(`Spec found (BFS) — ${spec.length} BPS states · follow the ★ head`);
       }
     } catch (e) {
       setComputeMsg(String(e.message || e));
@@ -74,7 +85,8 @@ export default function App() {
     }
   }
 
-  // Exact spec via build_S (slow; can blow up on higher rank — prefer BFS).
+  // Exact spec via build_S (slow; can blow up on higher rank — prefer BFS).  No
+  // mutation sequence, so the guide shows the necklace + green moves (no ★ head).
   async function doFindSpec() {
     setComputing(true); setComputeMsg("");
     try {
@@ -82,8 +94,7 @@ export default function App() {
       if (spec === null) {
         setComputeMsg("No finite-chamber spec found (wild chart / raise the cutoff).");
       } else {
-        // write the found spec into the quiver so the payload + S section update
-        setQuiver((q) => ({ ...q, spec: { seq: [], charges: spec, method: "S->spec" } }));
+        commitFoundSpec([], spec, "S->spec");
         setToast(`Spec found — ${spec.length} BPS states`);
       }
     } catch (e) {
@@ -91,6 +102,13 @@ export default function App() {
     } finally {
       setComputing(false);
     }
+  }
+
+  // ▶ Restart the guided walk from the base quiver (re-enter Mutate mode).
+  function followSpec() {
+    if (!guideSpec) return;
+    setQuiver(mutBase); setMutLog([]); setMode("mutate");
+    setToast("Following spec — click the ★ head node");
   }
 
   // Terminate a runaway/slow compute (e.g. an exact build_S) and respawn the
@@ -140,6 +158,8 @@ export default function App() {
 
   function newBaseQuiver(nq) {
     setQuiver(nq); setMutBase(nq); setMutLog([]);
+    // seed the guide from an imported/preset spec if present, else clear it
+    setGuideSpec(nq.spec?.charges?.length ? { seq: nq.spec.seq || [], charges: nq.spec.charges } : null);
   }
 
   function loadPreset(key) {
@@ -154,7 +174,7 @@ export default function App() {
   function handleChange(newQ) {
     setQuiver(newQ);
     if (newQ.nodes.length !== quiver.nodes.length || !sameMatrix(newQ.B, quiver.B)) {
-      setMutBase(newQ); setMutLog([]);
+      setMutBase(newQ); setMutLog([]); setGuideSpec(null);   // spec no longer valid
     }
   }
 
@@ -162,10 +182,15 @@ export default function App() {
     const newLog = [...mutLog, { index: k, dir }];
     const nq = mutate(quiver, k, dir);
     const st = spectrumStatus(mutBase, newLog);
-    if (st.complete) nq.spec = { seq: newLog.map((s) => s.index), charges: st.specCharges, method: "mutation" };
+    if (st.complete) {
+      nq.spec = { seq: newLog.map((s) => s.index), charges: st.specCharges, method: "mutation" };
+      // arm the necklace guide from a hand-found spectrum generator (forward-only
+      // walks give a replayable sequence; otherwise keep the charges necklace)
+      setGuideSpec({ seq: newLog.every((s) => s.dir > 0) ? newLog.map((s) => s.index) : [], charges: st.specCharges });
+    }
     setQuiver(nq);
     setMutLog(newLog);
-    if (st.complete) setToast("Spectrum generator found!");
+    if (st.complete) setToast("Spectrum generator found — necklace closed!");
   }
 
   function undoMutation() {
@@ -206,6 +231,19 @@ export default function App() {
   }
 
   const spectrum = spectrumStatus(mutBase, mutLog);
+
+  // Mutate-tab guide: green = admissible "green" moves in the running quiver;
+  // head = the next node in the found sequence (cyclic necklace), shown only
+  // while the walk is faithfully following the spec.
+  const specSeq = guideSpec?.seq || [];
+  const following = onSpecPath(specSeq, mutLog);
+  const green = mode === "mutate" ? greenNodes(quiver, mutBase.nodes.map((nd) => nd.charge)) : [];
+  const headNode = mode === "mutate" && following ? guidedHead(specSeq, mutLog.length) : -1;
+  const necklace = guideSpec
+    ? { charges: guideSpec.charges, hasSeq: specSeq.length > 0, following,
+        pos: specSeq.length ? mutLog.length % specSeq.length : mutLog.length,
+        lap: specSeq.length ? Math.floor(mutLog.length / specSeq.length) : 0 }
+    : null;
 
   return (
     <div className="app">
@@ -250,17 +288,19 @@ export default function App() {
 
       <main className="workspace">
         <div className="canvas-wrap" ref={canvasRef}>
-          <QuiverCanvas quiver={quiver} onChange={handleChange} onMutate={doMutate} mode={mode} selected={selected} onSelect={setSelected} />
+          <QuiverCanvas quiver={quiver} onChange={handleChange} onMutate={doMutate} mode={mode} selected={selected} onSelect={setSelected}
+            greenNodes={green} headNode={headNode} />
           <div className="canvas-legend">
             {mode === "construct"
               ? "Construct: drag between nodes = draw an arrow (drag the reverse to remove) · click empty = add node · click node = select · right-click = delete"
               : mode === "mutate"
-              ? "Mutate: left-click a node = mutation μ_k · right-click = inverse μ_k⁻¹ · node charges shown below; all negated ⇒ spectrum generator"
+              ? "Mutate: left-click = μ_k · right-click = inverse · ★ gold ring = next spec node (follow it) · green ring = admissible move · charges below; all negated ⇒ spectrum generator"
               : "Move: drag a node to reposition (display only)"}
           </div>
         </div>
         <SidePanel quiver={quiver} onChange={handleChange} onCopy={copy}
           mutLog={mutLog} spectrum={spectrum} onUndoMutation={undoMutation} onClearMutations={clearMutations}
+          necklace={necklace} onFollowSpec={followSpec} mode={mode}
           kernel={kernel} computing={computing} exactS={exactS} computeMsg={computeMsg}
           onFindSpecBFS={doFindSpecBFS} onFindSExact={doFindSExact} onFindSpec={doFindSpec} onCancel={doCancel}
           onDiagnostics={doDiagnostics} diagJson={diagJson} onCopyDiag={() => copy(diagJson, "diagnostics")} />

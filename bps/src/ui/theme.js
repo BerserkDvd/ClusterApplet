@@ -15,6 +15,8 @@ export const C = {
   dim: "#94a3b8",
   accent: "#60a5fa",
   danger: "#ef4444",
+  green: "#22c55e",   // admissible "green" mutation (live spec discovery)
+  head: "#fbbf24",    // guided head — the next node in the found spec sequence
 };
 
 export const NODE_R = 22;
