@@ -89,6 +89,38 @@ test("addPuncture then removePuncture round-trips (up to iso)", () => {
   }
 });
 
+// ── after attach, the polygon layout uses BOUNDARY order (no fold-over) ─────
+test("polygon layout places marked points in boundary order, not label order", async () => {
+  const { boundaryVertexOrder, polygonLayout } = await import("../src/model/triangulation_layout.js");
+  // pentagon + one attached triangle (labels re-derived; boundary ≠ label order)
+  const T = makeTriangulation({
+    nPunctures: 6,
+    edges: [[1, 3], [0, 3], [0, 1], [1, 2], [2, 3], [3, 4], [0, 4], [0, 5], [1, 5]],
+    triangleEdges: [[0, 3, 4], [0, 1, 2], [1, 5, 6], [2, 7, 8]],
+  });
+  const order = boundaryVertexOrder(T);
+  assert.equal(order.length, 6);
+  // consecutive vertices in the walk are joined by a boundary edge
+  const bedges = new Set(T.boundaryEdgeIds.map((e) => T.edges[e].slice().sort((a, b) => a - b).join(",")));
+  for (let i = 0; i < order.length; i++) {
+    const u = order[i], v = order[(i + 1) % order.length];
+    assert.ok(bedges.has([u, v].sort((a, b) => a - b).join(",")), `${u}-${v} not a boundary edge`);
+  }
+  // no two disjoint drawn chords cross (clean planar embedding)
+  const L = polygonLayout(T);
+  const cross = (p, q, r, s) => {
+    const d = (a, b, c) => Math.sign((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]));
+    return d(p, q, r) !== d(p, q, s) && d(r, s, p) !== d(r, s, q);
+  };
+  let crossings = 0;
+  for (let i = 0; i < L.edges.length; i++) for (let j = i + 1; j < L.edges.length; j++) {
+    const a = L.edges[i], b = L.edges[j];
+    if (new Set([a.u, a.v, b.u, b.v]).size < 4) continue; // share a vertex
+    if (cross([a.x1, a.y1], [a.x2, a.y2], [b.x1, b.y1], [b.x2, b.y2])) crossings++;
+  }
+  assert.equal(crossings, 0, "polygon chords should not cross");
+});
+
 // ── addPuncture is valid even on a one-vertex chart (multi-edge spokes) ──────
 test("addPuncture works on a degenerate one-vertex chart (torus)", () => {
   const T = chart("torus");

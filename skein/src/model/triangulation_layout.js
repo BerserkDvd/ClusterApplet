@@ -54,11 +54,46 @@ export function defaultView(T) {
 
 // ── polygon (disk) layout ────────────────────────────────────────────────────
 
+// The cyclic order of the boundary marked points, walked along the boundary
+// edges (each connects two consecutive marked points).  This — NOT the label
+// order — is how they must sit on the circle, so the boundary edges are the
+// polygon sides and the triangulation's diagonals are non-crossing chords.
+// (After attach/glue the labels are re-derived, so label order ≠ boundary order.)
+export function boundaryVertexOrder(T) {
+  const adj = new Map();
+  for (const e of T.boundaryEdgeIds) {
+    const [u, v] = T.edges[e];
+    if (!adj.has(u)) adj.set(u, []);
+    if (!adj.has(v)) adj.set(v, []);
+    adj.get(u).push(v); adj.get(v).push(u);
+  }
+  if (adj.size === 0) return [];
+  const start = T.edges[T.boundaryEdgeIds[0]][0];
+  const order = [], seen = new Set();
+  let cur = start, prev = -1;
+  while (cur !== undefined && !seen.has(cur)) {
+    order.push(cur); seen.add(cur);
+    const nbrs = adj.get(cur) || [];
+    let nx = nbrs.find((x) => x !== prev && !seen.has(x));
+    if (nx === undefined) nx = nbrs.find((x) => x !== prev);
+    prev = cur;
+    cur = nx !== undefined && !seen.has(nx) ? nx : undefined;
+  }
+  return order;
+}
+
 export function polygonLayout(T, { R = 150, cx = 0, cy = 0 } = {}) {
   const n = T.nPunctures;
+  const order = boundaryVertexOrder(T);
+  const m = order.length || n;
+  // circle position index of each vertex label = its place in the boundary walk
+  const slot = new Array(n).fill(-1);
+  order.forEach((v, k) => { if (v >= 0 && v < n) slot[v] = k; });
+  let next = order.length;
   const pos = [];
-  for (let i = 0; i < n; i++) {
-    const a = -Math.PI / 2 + (2 * Math.PI * i) / n; // vertex 0 at top, ccw
+  for (let v = 0; v < n; v++) {
+    const k = slot[v] >= 0 ? slot[v] : next++; // interior/stray fallback (rare)
+    const a = -Math.PI / 2 + (2 * Math.PI * k) / Math.max(m, 1);
     pos.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]);
   }
   const verts = pos.map((p, i) => ({ id: i, x: p[0], y: p[1] }));
