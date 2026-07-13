@@ -10,14 +10,21 @@ import {
 //                 (closed / higher-genus charts): the "octagon with identified
 //                 sides" picture;
 //   · quiver    — the dual exchange quiver of σ_Δ (always planar).
-// Clicking an internal (flippable) edge performs the diagonal flip ≡ mutation.
+//
+// Two interaction modes:
+//   · flip  — click an internal edge → diagonal flip ≡ mutation;
+//   · build — click edges to select them (free edges highlighted) and click a
+//             triangle interior to pick it (for add-a-puncture); the app's build
+//             panel turns the selection into attach / glue / cut / puncture ops.
 
-// distinct hues for identified side-pairs (matched by edge id)
 const PAIR_HUES = [190, 45, 320, 150, 265, 20, 95, 230, 350, 120];
 const pairColor = (edge) => `hsl(${PAIR_HUES[edge % PAIR_HUES.length]} 70% 60%)`;
 
-export default function TriangulationCanvas({ tri, view, selected, onFlip, onSelectEdge }) {
+export default function TriangulationCanvas({
+  tri, view, mode = "flip", selEdges, selTriangle = -1, onEdge, onTriangle,
+}) {
   const [hover, setHover] = useState(-1);
+  const sel = selEdges || new Set();
 
   const layout = useMemo(() => {
     if (view === "polygon") return polygonLayout(tri);
@@ -34,10 +41,8 @@ export default function TriangulationCanvas({ tri, view, selected, onFlip, onSel
   }, [layout]);
 
   const internal = new Set(tri.internalEdgeIds);
-  const clickEdge = (e) => {
-    if (internal.has(e)) onFlip?.(e);
-    else onSelectEdge?.(e);
-  };
+  const free = new Set(tri.boundaryEdgeIds);
+  const ctx = { mode, sel, internal, free, hover, setHover, onEdge, onTriangle, selTriangle };
 
   return (
     <svg
@@ -56,42 +61,45 @@ export default function TriangulationCanvas({ tri, view, selected, onFlip, onSel
         </marker>
       </defs>
 
-      {layout.kind === "polygon" && (
-        <PolygonView layout={layout} tri={tri} internal={internal} selected={selected}
-          hover={hover} setHover={setHover} clickEdge={clickEdge} />
-      )}
-      {layout.kind === "developed" && (
-        <DevelopedView layout={layout} tri={tri} internal={internal} selected={selected}
-          hover={hover} setHover={setHover} clickEdge={clickEdge} />
-      )}
-      {layout.kind === "quiver" && (
-        <QuiverView layout={layout} tri={tri} internal={internal} selected={selected}
-          hover={hover} setHover={setHover} clickEdge={clickEdge} />
-      )}
+      {layout.kind === "polygon" && <PolygonView layout={layout} {...ctx} />}
+      {layout.kind === "developed" && <DevelopedView layout={layout} {...ctx} />}
+      {layout.kind === "quiver" && <QuiverView layout={layout} {...ctx} />}
     </svg>
   );
 }
 
+// stroke for an edge given the interaction state
+function edgeStroke({ id, isBoundary, mode, sel, internal, hover }) {
+  if (sel.has(id)) return C.selected;
+  if (id === hover && (mode === "build" || internal.has(id))) return C.hover;
+  if (mode === "build" && !isBoundary) return "rgba(148,163,184,0.55)"; // internal, dim
+  if (mode === "build" && isBoundary) return "#f0abfc";                  // free edge, bright
+  return isBoundary ? C.framingStroke : C.nodeStroke;
+}
+
 // ── polygon (disk) view ─────────────────────────────────────────────────────
-function PolygonView({ layout, internal, selected, hover, setHover, clickEdge }) {
+function PolygonView({ layout, mode, sel, internal, hover, setHover, onEdge, onTriangle, selTriangle }) {
   return (
     <g>
       {layout.triangles.map((t) => (
-        <polygon key={t.id} points={triPts(layout, t)} fill="rgba(96,165,250,0.06)" stroke="none" />
+        <polygon key={t.id} points={triPts(layout, t)}
+          fill={t.id === selTriangle ? "rgba(56,189,248,0.18)" : "rgba(96,165,250,0.06)"}
+          stroke="none"
+          style={{ cursor: mode === "build" ? "pointer" : "default" }}
+          onPointerDown={() => mode === "build" && onTriangle?.(t.id)} />
       ))}
       {layout.edges.map((e) => {
-        const isInt = internal.has(e.id);
-        const isSel = e.id === selected, isHov = e.id === hover;
-        const stroke = isSel ? C.selected : isHov && isInt ? C.hover : e.boundary ? C.framingStroke : C.nodeStroke;
+        const clickable = mode === "build" || internal.has(e.id);
+        const stroke = edgeStroke({ id: e.id, isBoundary: e.boundary, mode, sel, internal, hover });
         return (
           <g key={e.id}>
             <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2}
-              stroke={stroke} strokeWidth={e.boundary ? 3.4 : isSel || isHov ? 3 : 2}
-              style={{ cursor: isInt ? "pointer" : "default" }}
-              onPointerDown={() => clickEdge(e.id)}
+              stroke={stroke} strokeWidth={sel.has(e.id) ? 4 : e.boundary ? 3.4 : 2}
+              style={{ cursor: clickable ? "pointer" : "default" }}
+              onPointerDown={(ev) => { ev.stopPropagation(); clickable && onEdge?.(e.id); }}
               onPointerEnter={() => setHover(e.id)} onPointerLeave={() => setHover(-1)} />
             <text x={(e.x1 + e.x2) / 2} y={(e.y1 + e.y2) / 2 - 3} textAnchor="middle" fontSize="10"
-              fill={isInt ? C.dim : "#6b7c93"} fontFamily="ui-monospace, monospace"
+              fill={C.dim} fontFamily="ui-monospace, monospace"
               style={{ pointerEvents: "none", userSelect: "none" }}>{e.id}</text>
           </g>
         );
@@ -112,29 +120,31 @@ function triPts(layout, t) {
 }
 
 // ── developed (unfolded, identified sides) view ─────────────────────────────
-function DevelopedView({ layout, internal, selected, hover, setHover, clickEdge }) {
+function DevelopedView({ layout, mode, sel, internal, hover, setHover, onEdge, onTriangle, selTriangle }) {
   return (
     <g>
       {layout.triangles.map((t) => (
         <polygon key={t.id} points={t.pts.map((p) => `${p[0]},${p[1]}`).join(" ")}
-          fill="rgba(96,165,250,0.05)" stroke="none" />
+          fill={t.id === selTriangle ? "rgba(56,189,248,0.16)" : "rgba(96,165,250,0.05)"}
+          stroke="none"
+          style={{ cursor: mode === "build" ? "pointer" : "default" }}
+          onPointerDown={() => mode === "build" && onTriangle?.(t.id)} />
       ))}
       {layout.sides.map((s, i) => {
-        const isInt = internal.has(s.edge);
-        const isSel = s.edge === selected, isHov = s.edge === hover;
+        const clickable = mode === "build" || internal.has(s.edge);
         const identified = s.role === "identified";
-        const col = identified ? pairColor(s.edge)
-          : s.role === "boundary" ? C.framingStroke
-          : isSel ? C.selected : isHov ? C.hover : "rgba(148,163,184,0.5)";
-        const w = s.role === "boundary" ? 3.4 : identified ? 3 : isSel || isHov ? 2.6 : 1.6;
+        const isBoundary = s.role === "boundary";
+        let col = edgeStroke({ id: s.edge, isBoundary, mode, sel, internal, hover });
+        if (identified && !sel.has(s.edge) && s.edge !== hover && mode !== "build") col = pairColor(s.edge);
+        const w = sel.has(s.edge) ? 4 : isBoundary ? 3.4 : identified ? 3 : 1.8;
         const mx = (s.x1 + s.x2) / 2, my = (s.y1 + s.y2) / 2;
         return (
           <g key={i} style={{ color: col }}>
             <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={col} strokeWidth={w}
               strokeDasharray={s.role === "interior" ? "5 4" : undefined}
               markerEnd={identified ? "url(#idar)" : undefined}
-              style={{ cursor: isInt ? "pointer" : "default" }}
-              onPointerDown={() => clickEdge(s.edge)}
+              style={{ cursor: clickable ? "pointer" : "default" }}
+              onPointerDown={(ev) => { ev.stopPropagation(); clickable && onEdge?.(s.edge); }}
               onPointerEnter={() => setHover(s.edge)} onPointerLeave={() => setHover(-1)} />
             <text x={mx} y={my - 4} textAnchor="middle" fontSize="10"
               fill={identified ? col : C.dim} fontFamily="ui-monospace, monospace"
@@ -147,7 +157,7 @@ function DevelopedView({ layout, internal, selected, hover, setHover, clickEdge 
 }
 
 // ── dual exchange-quiver view ───────────────────────────────────────────────
-function QuiverView({ layout, internal, selected, hover, setHover, clickEdge }) {
+function QuiverView({ layout, mode, sel, internal, hover, setHover, onEdge }) {
   const R = 15;
   const nodeAt = (i) => layout.nodes[i];
   return (
@@ -171,16 +181,16 @@ function QuiverView({ layout, internal, selected, hover, setHover, clickEdge }) 
         );
       })}
       {layout.nodes.map((nd) => {
-        const isInt = internal.has(nd.id);
-        const isSel = nd.id === selected, isHov = nd.id === hover;
-        const stroke = isSel ? C.selected : isHov && isInt ? C.hover : nd.boundary ? C.framingStroke : C.nodeStroke;
+        const clickable = mode === "build" || internal.has(nd.id);
+        const isSel = sel.has(nd.id);
+        const stroke = isSel ? C.selected : nd.id === hover && clickable ? C.hover : nd.boundary ? C.framingStroke : C.nodeStroke;
         return (
-          <g key={nd.id} style={{ cursor: isInt ? "pointer" : "default" }}
-            onPointerDown={() => clickEdge(nd.id)}
+          <g key={nd.id} style={{ cursor: clickable ? "pointer" : "default" }}
+            onPointerDown={() => clickable && onEdge?.(nd.id)}
             onPointerEnter={() => setHover(nd.id)} onPointerLeave={() => setHover(-1)}>
             {nd.boundary
-              ? <rect x={nd.x - R} y={nd.y - R} width={2 * R} height={2 * R} rx="4" fill={C.framingFill} stroke={stroke} strokeWidth={isSel || isHov ? 3 : 2} />
-              : <circle cx={nd.x} cy={nd.y} r={R} fill={C.nodeFill} stroke={stroke} strokeWidth={isSel || isHov ? 3 : 2} />}
+              ? <rect x={nd.x - R} y={nd.y - R} width={2 * R} height={2 * R} rx="4" fill={C.framingFill} stroke={stroke} strokeWidth={isSel ? 3.5 : 2} />
+              : <circle cx={nd.x} cy={nd.y} r={R} fill={C.nodeFill} stroke={stroke} strokeWidth={isSel ? 3.5 : 2} />}
             <text x={nd.x} y={nd.y + 4} textAnchor="middle" fontSize="12" fontWeight="700" fill={C.text}
               style={{ pointerEvents: "none", userSelect: "none" }}>{nd.id}</text>
           </g>

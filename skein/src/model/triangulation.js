@@ -373,6 +373,16 @@ export function validateTriangulation(T) {
   if (!T.isBordered && T.nEdges > 0 && 2 * T.nEdges !== 3 * T.nTriangles) {
     errors.push(`inconsistent closed chart: 2E=${2 * T.nEdges} ≠ 3F=${3 * T.nTriangles}`);
   }
+  // Orientable-surface Euler check: χ = 2 − 2g − b with g ≥ 0 (b = #boundary
+  // circles).  So 2g = 2 − χ − b must be a non-negative even integer.
+  if (errors.length === 0 && T.nEdges > 0 && T.triangleEdges.every((te) => new Set(te).size === 3)) {
+    const chi = T.nPunctures - T.nEdges + T.nTriangles;
+    const b = countBoundaryComponents(T).length;
+    const g2 = 2 - chi - b;
+    if (g2 < 0 || g2 % 2 !== 0) {
+      errors.push(`χ=${chi} with ${b} boundary component(s) is not 2−2g−b for an orientable surface`);
+    }
+  }
   return { ok: errors.length === 0, errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
 }
 

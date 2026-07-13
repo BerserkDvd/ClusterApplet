@@ -134,6 +134,8 @@ const NF3_DISK = {
 // physics reading so the panel can name the theory.
 
 export const PRESETS = [
+  { key: "triangle", group: "Build from scratch", label: "Single triangle", note: "one triangle, 3 free edges — attach / glue to build any surface by hand", build: () => makeTriangulation({ name: "Triangle", nPunctures: 3, edges: [[0, 1], [1, 2], [0, 2]], triangleEdges: [[0, 1, 2]], kind: "bordered" }) },
+
   { key: "p4", group: "Polygons (disks)", label: "Square P₄", note: "A_𝖖[T[A₁,A₃]]-adjacent; the U(1) square (SQED₁)", build: () => fanPolygon(4) },
   { key: "p5", group: "Polygons (disks)", label: "Pentagon P₅", note: "A_𝖖[T[A₁,A₂]] — the pentagon (Argyres–Douglas A₂)", build: () => fanPolygon(5) },
   { key: "p6", group: "Polygons (disks)", label: "Hexagon P₆", note: "A_𝖖[T[A₁,A₃]] — the U(1) hexagon", build: () => fanPolygon(6) },

@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import TriangulationCanvas from "./components/TriangulationCanvas.jsx";
 import TriangulationPanel from "./components/TriangulationPanel.jsx";
+import BuildPanel from "./components/BuildPanel.jsx";
+import { flip, renameTriangulation, canFlip, vertices } from "./model/triangulation.js";
 import {
-  flip, applyFlips, renameTriangulation, canFlip,
-} from "./model/triangulation.js";
-import {
-  presetByKey, presetGroups, customPolygon, PRESETS,
-} from "./model/triangulation_presets.js";
+  attachTriangle, selfGlue, cut, addPuncture, removePuncture,
+} from "./model/triangulation_build.js";
+import { presetByKey, presetGroups, customPolygon, PRESETS } from "./model/triangulation_presets.js";
 import { isSimplePolygon, defaultView } from "./model/triangulation_layout.js";
 import {
   toTriangulationJSON, toTriangulationShareURL, parseTriangulationImport,
@@ -16,13 +16,18 @@ import {
 const DEFAULT_KEY = "p5";
 
 export default function SkeinApp() {
-  const [base, setBase] = useState(() => triangulationFromLocationHash() || presetByKey(DEFAULT_KEY));
-  const [flipLog, setFlipLog] = useState([]);
-  const [tri, setTri] = useState(base);
+  const seed = () => triangulationFromLocationHash() || presetByKey(DEFAULT_KEY);
+  // history stack of { tri, label }; hist[0] is the base.  Undo pops; reset
+  // clears to base.  Uniform for flips AND build ops.
+  const [hist, setHist] = useState(() => [{ tri: seed(), label: "base" }]);
+  const tri = hist[hist.length - 1].tri;
+
   const [presetKey, setPresetKey] = useState(DEFAULT_KEY);
   const [presetNote, setPresetNote] = useState(noteFor(DEFAULT_KEY));
-  const [view, setView] = useState(() => defaultView(base));
-  const [selected, setSelected] = useState(-1);
+  const [view, setView] = useState(() => defaultView(seed()));
+  const [mode, setMode] = useState("flip");           // flip | build
+  const [selEdges, setSelEdges] = useState([]);        // build: up to 2 edge ids
+  const [selTriangle, setSelTriangle] = useState(-1);  // build: a triangle id
   const [presetsOpen, setPresetsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
@@ -32,45 +37,79 @@ export default function SkeinApp() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(""), 1800);
+    const t = setTimeout(() => setToast(""), 2200);
     return () => clearTimeout(t);
   }, [toast]);
 
-  function loadBase(nt, key = "", note = "an ideal triangulation") {
-    setBase(nt); setTri(nt); setFlipLog([]); setSelected(-1);
-    setPresetKey(key); setPresetNote(note);
-    setView(defaultView(nt));
-  }
+  function clearSel() { setSelEdges([]); setSelTriangle(-1); }
 
+  function loadBase(nt, key = "", note = "an ideal triangulation") {
+    setHist([{ tri: nt, label: "base" }]);
+    setPresetKey(key); setPresetNote(note);
+    setView(defaultView(nt)); clearSel();
+  }
   function loadPreset(key) {
     const p = presetByKey(key);
     if (p) loadBase(p, key, noteFor(key));
     setPresetsOpen(false);
   }
 
+  // apply a mutating op; on failure surface the reason (honest-fail).
+  function applyOp(fn, label) {
+    try {
+      const nt = fn(tri);
+      setHist((h) => [...h, { tri: nt, label }]);
+      clearSel();
+      if (view === "polygon" && !isSimplePolygon(nt)) setView(defaultView(nt));
+    } catch (e) { setToast(String(e.message || e)); }
+  }
+
   function doFlip(edge) {
     if (!canFlip(tri, edge)) { setToast("that edge can't be flipped (boundary or self-folded)"); return; }
-    const log = [...flipLog, edge];
-    setTri(flip(tri, edge));
-    setFlipLog(log);
-    setSelected(-1);
+    applyOp((t) => flip(t, edge), `flip e${edge}`);
   }
-  function undo() {
-    const log = flipLog.slice(0, -1);
-    setTri(applyFlips(base, log)); setFlipLog(log);
+  function undo() { if (hist.length > 1) setHist((h) => h.slice(0, -1)); clearSel(); }
+  function reset() { setHist((h) => [h[0]]); clearSel(); }
+
+  // ── build-mode picking ──
+  function onEdge(id) {
+    if (mode !== "build") { doFlip(id); return; }
+    setSelEdges((cur) => {
+      if (cur.includes(id)) return cur.filter((x) => x !== id);
+      return [...cur, id].slice(-2);   // keep the two most-recent
+    });
   }
-  function reset() { setTri(base); setFlipLog([]); }
+  function onTriangle(id) {
+    if (mode !== "build") return;
+    setSelTriangle((cur) => (cur === id ? -1 : id));
+  }
+
+  // ── build actions ──
+  const free = new Set(tri.boundaryEdgeIds);
+  const internal = new Set(tri.internalEdgeIds);
+  const selFree = selEdges.filter((e) => free.has(e));
+  const selInternal = selEdges.filter((e) => internal.has(e));
+  const interiorPunctures = useMemo(
+    () => vertices(tri).map((v, i) => ({ label: i, regular: v.regular })).filter((v) => v.regular),
+    [tri],
+  );
+
+  const build = {
+    attach: () => selFree.length === 1 && applyOp((t) => attachTriangle(t, selFree[0]), `attach e${selFree[0]}`),
+    glue: () => selFree.length === 2 && applyOp((t) => selfGlue(t, selFree[0], selFree[1]), `glue e${selFree[0]}+e${selFree[1]}`),
+    cut: () => selInternal.length === 1 && applyOp((t) => cut(t, selInternal[0]), `cut e${selInternal[0]}`),
+    addPuncture: (ti) => applyOp((t) => addPuncture(t, ti), `+punct t${ti}`),
+    removePuncture: (v) => applyOp((t) => removePuncture(t, v), `−punct v${v}`),
+  };
 
   async function copy(text, what) {
     try { await navigator.clipboard.writeText(text); setToast(`Copied ${what}`); }
     catch { setToast("Copy failed — select & copy manually"); }
   }
   function openBps() {
-    const url = toBpsAppURL(tri);
-    if (typeof window !== "undefined") window.open(url, "_blank", "noopener");
+    if (typeof window !== "undefined") window.open(toBpsAppURL(tri), "_blank", "noopener");
     setToast("Opening the σ quiver in the BPS applet…");
   }
-
   function doImport() {
     try {
       const nt = parseTriangulationImport(importText);
@@ -78,7 +117,6 @@ export default function SkeinApp() {
       setImportOpen(false); setImportText(""); setImportErr(""); setToast("Imported");
     } catch (e) { setImportErr(String(e.message || e)); }
   }
-
   function makePolygon() {
     const n = Math.max(3, Math.min(24, Math.trunc(polyN) || 5));
     loadBase(customPolygon(n), "", `A_𝖖[T[A₁,A${n - 3}]] — the ${n}-gon`);
@@ -91,6 +129,7 @@ export default function SkeinApp() {
     ["developed", "Developed"],
     ["quiver", "σ quiver"],
   ];
+  const opLabels = hist.slice(1).map((h) => h.label);
 
   return (
     <div className="app">
@@ -99,22 +138,27 @@ export default function SkeinApp() {
           <span className="logo alt">Sk</span>
           <div>
             <div className="title">Skein · triangulations</div>
-            <div className="subtitle">A_𝖖[T[A₁, Σ]] · flips ≡ mutations · v0.1</div>
+            <div className="subtitle">A_𝖖[T[A₁, Σ]] · flips ≡ mutations · v0.2 (build)</div>
           </div>
         </div>
 
         <input className="name-input" value={tri.name}
-          onChange={(e) => setTri((t) => renameTriangulation(t, e.target.value))} aria-label="Surface name" />
+          onChange={(e) => setHist((h) => [...h.slice(0, -1), { ...h[h.length - 1], tri: renameTriangulation(tri, e.target.value) }])}
+          aria-label="Surface name" />
 
         <button onClick={() => setPresetsOpen(true)} title="Browse standard surfaces">📚 Presets</button>
 
         <label className="field poly">n-gon
           <span className="row" style={{ gap: 4 }}>
-            <input type="number" min="3" max="24" value={polyN}
-              onChange={(e) => setPolyN(e.target.value)} style={{ width: 52 }} />
+            <input type="number" min="3" max="24" value={polyN} onChange={(e) => setPolyN(e.target.value)} style={{ width: 52 }} />
             <button onClick={makePolygon} title="Build the fan-triangulated n-gon">Go</button>
           </span>
         </label>
+
+        <div className="mode-toggle" role="group" aria-label="Interaction">
+          <button className={mode === "flip" ? "on" : ""} onClick={() => { setMode("flip"); clearSel(); }} title="Click an internal edge to flip it (≡ mutation)">Flip</button>
+          <button className={mode === "build" ? "on" : ""} onClick={() => setMode("build")} title="Select edges / triangles to attach, glue, cut, or add punctures">Build</button>
+        </div>
 
         <div className="mode-toggle" role="group" aria-label="View">
           {views.map(([k, lbl]) => (
@@ -130,29 +174,39 @@ export default function SkeinApp() {
 
       <main className="workspace">
         <div className="canvas-wrap">
-          <TriangulationCanvas tri={tri} view={view} selected={selected}
-            onFlip={doFlip} onSelectEdge={setSelected} />
+          <TriangulationCanvas tri={tri} view={view} mode={mode}
+            selEdges={new Set(selEdges)} selTriangle={selTriangle}
+            onEdge={onEdge} onTriangle={onTriangle} />
           <div className="canvas-legend">
-            {view === "polygon"
-              ? "Polygon (disk): click a diagonal to flip it (≡ mutation). Boundary sides are frozen; ▢ = marked points."
+            {mode === "build"
+              ? "Build: click free edges (bright) — 1 → Attach a triangle, 2 → Glue; click an internal edge → Cut; click a triangle → Add puncture. Actions in the panel →"
+              : view === "polygon"
+              ? "Flip · Polygon (disk): click a diagonal to flip it (≡ mutation). Boundary sides frozen; ▢ = marked points."
               : view === "developed"
-              ? "Developed fundamental polygon: dashed = interior edges (click to flip); thick = boundary; coloured pairs (same colour + arrow + label) = identified sides."
-              : "Dual exchange quiver of σ_Δ: ○ = internal (mutable) edge — click to flip; ▢ = boundary (frozen)."}
+              ? "Flip · Developed fundamental polygon: dashed = interior (click to flip); coloured pairs (same colour + arrow + label) = identified sides."
+              : "Flip · dual σ_Δ quiver: ○ = internal (mutable) edge — click to flip; ▢ = boundary (frozen)."}
           </div>
         </div>
-        <TriangulationPanel tri={tri} presetNote={presetNote} flipLog={flipLog}
-          onUndo={undo} onReset={reset}
-          onCopyJSON={() => copy(toTriangulationJSON(tri), "JSON")}
-          onCopyURL={() => copy(toTriangulationShareURL(tri), "share URL")}
-          onCopyBpsJSON={() => copy(toBpsJSON(tri), "BPS JSON")}
-          onOpenBps={openBps} />
+
+        <div className="panel-stack">
+          {mode === "build" && (
+            <BuildPanel tri={tri} selFree={selFree} selInternal={selInternal} selTriangle={selTriangle}
+              interiorPunctures={interiorPunctures} build={build} />
+          )}
+          <TriangulationPanel tri={tri} presetNote={presetNote} flipLog={opLabels}
+            onUndo={undo} onReset={reset}
+            onCopyJSON={() => copy(toTriangulationJSON(tri), "JSON")}
+            onCopyURL={() => copy(toTriangulationShareURL(tri), "share URL")}
+            onCopyBpsJSON={() => copy(toBpsJSON(tri), "BPS JSON")}
+            onOpenBps={openBps} />
+        </div>
       </main>
 
       {presetsOpen && (
         <div className="modal-backdrop" onClick={() => setPresetsOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Surface library</h3>
-            <p className="hint">Ideal triangulations of marked surfaces — polygons, closed spheres, and higher genus. Pick one to load it.</p>
+            <p className="hint">Ideal triangulations of marked surfaces — start from a single triangle and build by hand, or load a standard surface.</p>
             <div className="preset-tree">
               {groups.map((g) => (
                 <details key={g.group} open>

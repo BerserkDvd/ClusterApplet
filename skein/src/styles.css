@@ -211,6 +211,20 @@ button.primary, button.on { background: var(--accent); color: #06122b; font-weig
 
 /* skein applet accents */
 .logo.alt { background: linear-gradient(135deg, #3b2f5f, #7c3aed); }
+
+/* the right column can stack a build panel above the inspection panel */
+.panel-stack {
+  width: 360px; flex-shrink: 0; border-left: 1px solid var(--border);
+  overflow-y: auto; display: flex; flex-direction: column; background: var(--card);
+}
+.panel-stack .side-panel { width: auto; border-left: none; overflow: visible; }
+.side-panel.build { background: rgba(124, 58, 237, 0.06); border-bottom: 1px solid var(--border); }
+.build-sel { font-size: 12px; margin: 6px 0 10px; }
+.build-actions { display: flex; flex-direction: column; gap: 6px; }
+.build-actions button { text-align: left; }
+.build-actions button:disabled { opacity: .4; cursor: not-allowed; }
+.build-punctures { margin-top: 10px; }
+.free-swatch { color: #f0abfc; }
 .field.poly { flex-direction: column; }
 .field.poly input[type="number"] {
   background: var(--bg); color: var(--text); border: 1px solid var(--border);
