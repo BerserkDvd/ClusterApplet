@@ -5,11 +5,11 @@ import PresetTree from "./components/PresetTree.jsx";
 import { makeQuiver, emptyQuiver, renameQuiver, removeNode, autoArrange, nodeLabel, mutate, applyMutations, spectrumStatus, sameMatrix, toConstructorPayload } from "./model/quiver.js";
 import { presetByKey } from "./model/presets.js";
 import { toJSONString, toShareURL, parseImport, quiverFromLocationHash } from "./model/share.js";
-import { onKernelStatus } from "./compute/kernel.js";
-import { findSpectrumExact, findSpec, exportDiagnostics } from "./compute/bps.js";
+import { onKernelStatus, kernelStatus, killKernel } from "./compute/kernel.js";
+import { findSpectrumExact, findSpec, findSpecBFS, exportDiagnostics } from "./compute/bps.js";
 
 const DEFAULT_KEY = "a1a2";
-const APP_VERSION = "v0.13 (diagnostics)";
+const APP_VERSION = "v0.14 (BFS spec-finder)";
 
 export default function App() {
   const [quiver, setQuiver] = useState(() => quiverFromLocationHash() || makeQuiver(presetByKey(DEFAULT_KEY)));
@@ -55,6 +55,26 @@ export default function App() {
     }
   }
 
+  // Primary spec-finder: bidirectional BFS over the mutation graph (fast; no
+  // build_S).  Writes both the found mutation sequence and the ordered spec.
+  async function doFindSpecBFS() {
+    setComputing(true); setComputeMsg("");
+    try {
+      const { seq, spec } = await findSpecBFS(toConstructorPayload(quiver));
+      if (spec === null) {
+        setComputeMsg("No negating sequence within depth 25 (wild/infinite chamber, or raise the depth).");
+      } else {
+        setQuiver((q) => ({ ...q, spec: { seq: seq || [], charges: spec, method: "BFS" } }));
+        setToast(`Spec found (BFS) — ${spec.length} BPS states`);
+      }
+    } catch (e) {
+      setComputeMsg(String(e.message || e));
+    } finally {
+      setComputing(false);
+    }
+  }
+
+  // Exact spec via build_S (slow; can blow up on higher rank — prefer BFS).
   async function doFindSpec() {
     setComputing(true); setComputeMsg("");
     try {
@@ -73,30 +93,49 @@ export default function App() {
     }
   }
 
+  // Terminate a runaway/slow compute (e.g. an exact build_S) and respawn the
+  // kernel, so the UI is usable again immediately.
+  function doCancel() {
+    killKernel();
+    setComputing(false);
+    setComputeMsg("Compute cancelled — kernel restarted. It will reload on the next run.");
+  }
+
   // Self-test / paste-back diagnostics: assemble the JS-side context (kernel
-  // state, bundle source, environment) + the Python-side self-test into one JSON
-  // blob the user can copy back into a chat for debugging.
-  async function doDiagnostics() {
-    setComputing(true); setComputeMsg("");
-    const js = {
-      app_version: APP_VERSION,
-      when: new Date().toISOString(),
-      href: (typeof location !== "undefined" && location.href) || null,
-      userAgent: (typeof navigator !== "undefined" && navigator.userAgent) || null,
-      kernel: { status: kernel.status, bundleSource: kernel.bundleSource || null, statusMsg: kernel.statusMsg || "" },
-      quiver: { name: quiver.name, n: quiver.nodes.length, B: quiver.B },
+  // state, bundle source, environment) + a bounded Python-side self-test into one
+  // JSON blob the user can copy back into a chat for debugging.  The JS half is
+  // rendered instantly, before the (timeout-bounded) Python probe, so the panel
+  // is never blank — even when a busy worker can't answer.
+  function diagJsContext(pyResult) {
+    const k = kernelStatus();       // fresh, not the render-time snapshot
+    return {
+      diagnostics: "kalgebra-bps-applet",
+      js: {
+        app_version: APP_VERSION,
+        when: new Date().toISOString(),
+        href: (typeof location !== "undefined" && location.href) || null,
+        userAgent: (typeof navigator !== "undefined" && navigator.userAgent) || null,
+        kernel: { status: k.status, ready: k.ready, bundleSource: k.bundleSource || null, statusMsg: k.statusMsg || "" },
+        computing,
+        quiver: { name: quiver.name, n: quiver.nodes.length, B: quiver.B },
+      },
+      python: pyResult,
     };
+  }
+  async function doDiagnostics() {
+    // Render the JS context immediately so the button always visibly does
+    // something, even if the kernel is loading or busy.
+    setDiagJson(JSON.stringify(diagJsContext("probing… (kernel self-test running)"), null, 2));
     let py;
     try {
       py = await exportDiagnostics(toConstructorPayload(quiver));
     } catch (e) {
       py = { ok: false, kernel_error: String(e.message || e) };
     }
-    const report = JSON.stringify({ diagnostics: "kalgebra-bps-applet", js, python: py }, null, 2);
+    const report = JSON.stringify(diagJsContext(py), null, 2);
     setDiagJson(report);
     try { await navigator.clipboard.writeText(report); setToast("Diagnostics copied — paste them back"); }
     catch { setToast("Diagnostics ready — copy from the panel"); }
-    setComputing(false);
   }
 
   function newBaseQuiver(nq) {
@@ -223,7 +262,7 @@ export default function App() {
         <SidePanel quiver={quiver} onChange={handleChange} onCopy={copy}
           mutLog={mutLog} spectrum={spectrum} onUndoMutation={undoMutation} onClearMutations={clearMutations}
           kernel={kernel} computing={computing} exactS={exactS} computeMsg={computeMsg}
-          onFindSExact={doFindSExact} onFindSpec={doFindSpec}
+          onFindSpecBFS={doFindSpecBFS} onFindSExact={doFindSExact} onFindSpec={doFindSpec} onCancel={doCancel}
           onDiagnostics={doDiagnostics} diagJson={diagJson} onCopyDiag={() => copy(diagJson, "diagnostics")} />
       </main>
 

@@ -41,11 +41,34 @@ print(json.dumps(terms))
   return { terms: JSON.parse((res.stdout || "[]").trim() || "[]"), K };
 }
 
+// S -> spec via the bidirectional BFS mutation-path finder — meet-in-the-middle
+// search of the mutation graph for a sequence negating every charge (a spectrum
+// generator), then replayed into the ordered spec.  This does NOT build the
+// exact S element, so it stays ms-fast on quivers where the recursive build_S
+// blows up (e.g. rank ≥ 5).  Returns { seq, spec } (spec = [[charge],…]) or
+// { seq: null, spec: null } when no finite chamber is reachable within maxDepth.
+export async function findSpecBFS(payload, maxDepth = 25) {
+  const { B, nc } = payloadArgs(payload);
+  const src = `
+import json
+from bps_quiver_tools import BPSQuiver
+Q = BPSQuiver.from_pairing(${nc}, ${B})
+seq = Q.find_negating_sequence(max_depth=${maxDepth}, bidirectional=True)
+spec = Q.build_spectrum_generator(seq) if seq is not None else None
+print(json.dumps({"seq": seq, "spec": None if spec is None else [list(g) for g in spec]}))
+`;
+  const res = await run(src, { timeoutMs: 45000 });
+  if (res.err) throw new Error(pyError(res.err));
+  const out = JSON.parse((res.stdout || "null").trim() || "null");
+  return out || { seq: null, spec: null };
+}
+
 // S -> spec: recover a finite-chamber spectrum generator spec (the ordered BPS
 // charges [γ_1,…,γ_N] with S = ∏ E_q(X_{γ_i})) from the quiver, by building S
 // (recursive F-finder) then running the insertion extractor + full-cone
-// verification.  Returns { spec: [[charge],…] } or { spec: null } for wild
-// charts (no finite chamber at this cutoff).
+// verification.  Exact, but the recursion can blow up on higher rank — prefer
+// findSpecBFS for spec-finding.  Returns { spec: [[charge],…] } or
+// { spec: null } for wild charts (no finite chamber at this cutoff).
 export async function findSpec(payload, cutoff = 8) {
   const { B, nc } = payloadArgs(payload);
   const src = `
@@ -100,7 +123,7 @@ except Exception:
     import traceback; d["checks"]["S_terms"] = "ERR " + traceback.format_exc().strip().splitlines()[-1]; d["ok"] = False
 print(json.dumps(d))
 `;
-  const res = await run(src);
+  const res = await run(src, { timeoutMs: 20000 });
   if (res.err) return { ok: false, kernel_error: pyError(res.err), raw: res.err };
   try { return JSON.parse((res.stdout || "{}").trim() || "{}"); }
   catch (e) { return { ok: false, parse_error: String(e), stdout: res.stdout }; }

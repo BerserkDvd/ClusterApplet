@@ -6,7 +6,8 @@ import { addArrow, toConstructorPayload, toPythonSnippet, validateQuiver, flavou
 export default function SidePanel({
   quiver, onChange, onCopy, mutLog = [], spectrum = { complete: false, specCharges: [] },
   onUndoMutation, onClearMutations,
-  kernel = { status: "idle" }, computing = false, exactS = null, computeMsg = "", onFindSExact, onFindSpec,
+  kernel = { status: "idle" }, computing = false, exactS = null, computeMsg = "",
+  onFindSpecBFS, onFindSExact, onFindSpec, onCancel,
   onDiagnostics, diagJson = "", onCopyDiag,
 }) {
   const v = validateQuiver(quiver);
@@ -106,15 +107,28 @@ export default function SidePanel({
       <section>
         <h3>Compute — real BPSKAlgebra <span className="badge">exact · in-browser</span></h3>
         <p className="hint">Runs the actual Python algebra in your browser (Pyodide). First run loads the kernel (~10 s, then cached).</p>
+
+        <p className="hint" style={{ marginTop: 6 }}><b>Find the spectrum</b> — the ordered BPS charges [γ<sub>1</sub>,…,γ<sub>N</sub>]:</p>
         <div className="row">
-          <button className="primary" disabled={computing || !v.ok || n === 0} onClick={onFindSExact}>
-            {computing ? "Computing…" : "⚙ Find S (exact)"}
+          <button className="primary" disabled={computing || !v.ok || n === 0} onClick={onFindSpecBFS}
+            title="Bidirectional BFS over the mutation graph for a negating sequence — fast, no build_S. Recommended.">
+            {computing ? "Computing…" : "⚙ Find spec (BFS)"}
           </button>
           <button disabled={computing || !v.ok || n === 0} onClick={onFindSpec}
-            title="S → spec: recover the ordered BPS charges [γ_1,…,γ_N] with S = ∏ E_q(X_γ) (finite chamber)">
-            Find spec (S→spec)
+            title="Exact via build_S then S→spec extraction. Can blow up on rank ≥ 5 — prefer BFS.">
+            Find spec (exact S)
           </button>
         </div>
+
+        <p className="hint" style={{ marginTop: 10 }}><b>Build the S element</b> — S = Σ c<sub>γ</sub>(𝖖) X<sub>γ</sub> (exact, recursive node-removal; <b>slow / can block on higher rank</b>):</p>
+        <div className="row">
+          <button disabled={computing || !v.ok || n === 0} onClick={onFindSExact}
+            title="Recursive build_S (the F-finder). Exact but expensive; use Cancel if it runs away.">
+            Find S (exact)
+          </button>
+          {computing && <button onClick={onCancel} title="Terminate the running compute and restart the kernel">⛔ Cancel</button>}
+        </div>
+
         {kernel.status === "loading" && <p className="hint" style={{ marginTop: 8 }}>{kernel.statusMsg}</p>}
         {kernel.status === "error" && <div className="banner err" style={{ marginTop: 8 }}>⚠ {kernel.statusMsg}</div>}
         {computeMsg && kernel.status !== "error" && <div className="banner warn" style={{ marginTop: 8 }}>{computeMsg}</div>}
@@ -125,7 +139,7 @@ export default function SidePanel({
           </>
         )}
         <div className="row" style={{ marginTop: 8 }}>
-          <button disabled={computing} onClick={onDiagnostics}
+          <button onClick={onDiagnostics}
             title="Run a self-test on the loaded kernel and copy a JSON report to paste back for debugging">
             🩺 Export diagnostics
           </button>
