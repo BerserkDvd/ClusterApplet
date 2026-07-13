@@ -41,6 +41,25 @@ print(json.dumps(terms))
   return { terms: JSON.parse((res.stdout || "[]").trim() || "[]"), K };
 }
 
+// S -> spec: recover a finite-chamber spectrum generator spec (the ordered BPS
+// charges [γ_1,…,γ_N] with S = ∏ E_q(X_{γ_i})) from the quiver, by building S
+// (recursive F-finder) then running the insertion extractor + full-cone
+// verification.  Returns { spec: [[charge],…] } or { spec: null } for wild
+// charts (no finite chamber at this cutoff).
+export async function findSpec(payload, cutoff = 8) {
+  const { B, nc } = payloadArgs(payload);
+  const src = `
+import json
+from recursive_spectrum import extract_spec_from_quiver
+spec = extract_spec_from_quiver(${B}, ${nc}, cutoff=${cutoff})
+print(json.dumps(None if spec is None else [list(g) for g in spec]))
+`;
+  const res = await run(src);
+  if (res.err) throw new Error(pyError(res.err));
+  const spec = JSON.parse((res.stdout || "null").trim() || "null");
+  return { spec };
+}
+
 // Structure constants L_a · L_b = Σ_c C^c_ab L_c.  Returns a display string.
 export async function computeMultiply(payload, a, b) {
   const { B, nc, spec } = payloadArgs(payload);

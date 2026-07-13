@@ -6,7 +6,7 @@ import { makeQuiver, emptyQuiver, renameQuiver, removeNode, autoArrange, nodeLab
 import { presetByKey } from "./model/presets.js";
 import { toJSONString, toShareURL, parseImport, quiverFromLocationHash } from "./model/share.js";
 import { onKernelStatus } from "./compute/kernel.js";
-import { findSpectrumExact } from "./compute/bps.js";
+import { findSpectrumExact, findSpec } from "./compute/bps.js";
 
 const DEFAULT_KEY = "a1a2";
 
@@ -46,6 +46,24 @@ export default function App() {
       const out = await findSpectrumExact(toConstructorPayload(quiver));
       setExactS(out);
       if (!out.terms.length) setComputeMsg("No S returned (chart may have no finite spectrum generator).");
+    } catch (e) {
+      setComputeMsg(String(e.message || e));
+    } finally {
+      setComputing(false);
+    }
+  }
+
+  async function doFindSpec() {
+    setComputing(true); setComputeMsg("");
+    try {
+      const { spec } = await findSpec(toConstructorPayload(quiver));
+      if (spec === null) {
+        setComputeMsg("No finite-chamber spec found (wild chart / raise the cutoff).");
+      } else {
+        // write the found spec into the quiver so the payload + S section update
+        setQuiver((q) => ({ ...q, spec: { seq: [], charges: spec, method: "S->spec" } }));
+        setToast(`Spec found — ${spec.length} BPS states`);
+      }
     } catch (e) {
       setComputeMsg(String(e.message || e));
     } finally {
@@ -129,7 +147,7 @@ export default function App() {
           <span className="logo">K𝖖</span>
           <div>
             <div className="title">KAlgebra Applets</div>
-            <div className="subtitle">BPS quiver · v0.11 (compute)</div>
+            <div className="subtitle">BPS quiver · v0.12 (compute)</div>
           </div>
         </div>
 
@@ -176,7 +194,8 @@ export default function App() {
         </div>
         <SidePanel quiver={quiver} onChange={handleChange} onCopy={copy}
           mutLog={mutLog} spectrum={spectrum} onUndoMutation={undoMutation} onClearMutations={clearMutations}
-          kernel={kernel} computing={computing} exactS={exactS} computeMsg={computeMsg} onFindSExact={doFindSExact} />
+          kernel={kernel} computing={computing} exactS={exactS} computeMsg={computeMsg}
+          onFindSExact={doFindSExact} onFindSpec={doFindSpec} />
       </main>
 
       {presetsOpen && (

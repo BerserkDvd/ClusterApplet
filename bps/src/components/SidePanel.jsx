@@ -6,7 +6,7 @@ import { addArrow, toConstructorPayload, toPythonSnippet, validateQuiver, flavou
 export default function SidePanel({
   quiver, onChange, onCopy, mutLog = [], spectrum = { complete: false, specCharges: [] },
   onUndoMutation, onClearMutations,
-  kernel = { status: "idle" }, computing = false, exactS = null, computeMsg = "", onFindSExact,
+  kernel = { status: "idle" }, computing = false, exactS = null, computeMsg = "", onFindSExact, onFindSpec,
 }) {
   const v = validateQuiver(quiver);
   const n = quiver.nodes.length;
@@ -93,18 +93,27 @@ export default function SidePanel({
       <section>
         <h3>Spectrum generator S</h3>
         {quiver.spec && quiver.spec.charges?.length ? (
-          <p className="mono small">S = {quiver.spec.charges.map((c) => `E_q(X_(${c.join(",")}))`).join(" · ")}</p>
+          <>
+            <p className="hint">{quiver.spec.charges.length} BPS states{quiver.spec.method ? ` · ${quiver.spec.method}` : ""}</p>
+            <p className="mono small">S = {quiver.spec.charges.map((c) => `E_q(X_(${c.join(",")}))`).join(" · ")}</p>
+          </>
         ) : (
-          <p className="dim">Not computed. The <b>S-finder</b> (real BPSKAlgebra) will compute it — coming in the compute path.</p>
+          <p className="dim">Not computed. Use <b>Find spec (S→spec)</b> below (exact), or mutate to a spectrum generator.</p>
         )}
       </section>
 
       <section>
         <h3>Compute — real BPSKAlgebra <span className="badge">exact · in-browser</span></h3>
         <p className="hint">Runs the actual Python algebra in your browser (Pyodide). First run loads the kernel (~10 s, then cached).</p>
-        <button className="primary" disabled={computing || !v.ok || n === 0} onClick={onFindSExact}>
-          {computing ? "Computing…" : "⚙ Find S (exact, recursive)"}
-        </button>
+        <div className="row">
+          <button className="primary" disabled={computing || !v.ok || n === 0} onClick={onFindSExact}>
+            {computing ? "Computing…" : "⚙ Find S (exact)"}
+          </button>
+          <button disabled={computing || !v.ok || n === 0} onClick={onFindSpec}
+            title="S → spec: recover the ordered BPS charges [γ_1,…,γ_N] with S = ∏ E_q(X_γ) (finite chamber)">
+            Find spec (S→spec)
+          </button>
+        </div>
         {kernel.status === "loading" && <p className="hint" style={{ marginTop: 8 }}>{kernel.statusMsg}</p>}
         {kernel.status === "error" && <div className="banner err" style={{ marginTop: 8 }}>⚠ {kernel.statusMsg}</div>}
         {computeMsg && kernel.status !== "error" && <div className="banner warn" style={{ marginTop: 8 }}>{computeMsg}</div>}
