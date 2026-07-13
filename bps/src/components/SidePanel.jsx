@@ -34,17 +34,21 @@ export default function SidePanel({
         const active = mode === "mutate" && necklace.following;
         return (
           <section>
-            <h3>Spec necklace {necklace.hasSeq && <span className="badge">{active ? "following" : mode === "mutate" ? "off-spec" : "ready"}</span>}</h3>
+            <h3>Spec necklace {necklace.complete
+              ? <span className="badge">✓ complete</span>
+              : necklace.hasSeq && <span className="badge">{active ? "following" : mode === "mutate" ? "off-spec" : "ready"}</span>}</h3>
             <p className="hint">
-              {necklace.charges.length} BPS states{necklace.lap > 0 ? ` · lap ${necklace.lap + 1}` : ""}.{" "}
-              {necklace.hasSeq
-                ? "Enter Mutate mode and click the ★ head node to walk the sequence — it cycles (ρ² over two laps)."
+              {necklace.charges.length} BPS states{necklace.lap > 0 && !necklace.complete ? ` · lap ${necklace.lap + 1}` : ""}.{" "}
+              {necklace.complete
+                ? "Spectrum generator reached — all charges negated. 🎆 ▶ Follow again to replay."
+                : necklace.hasSeq
+                ? "Enter Mutate mode and click the ★ head node to walk the sequence."
                 : "No mutation sequence — click the green nodes in Mutate mode to discover it."}
             </p>
             <div className="necklace">
               {necklace.charges.map((c, t) => {
-                const isHead = active && necklace.hasSeq && t === necklace.pos;
-                const done = active && t < necklace.pos;
+                const isHead = active && !necklace.complete && necklace.hasSeq && t === necklace.pos;
+                const done = active && (necklace.complete || t < necklace.pos);
                 return (
                   <span key={t} className={`bead${isHead ? " head" : done ? " done" : ""}`}>
                     {isHead ? "★ " : ""}γ<sub>{t + 1}</sub>&nbsp;({c.join(",")})

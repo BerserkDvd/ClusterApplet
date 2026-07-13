@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import QuiverCanvas from "./components/QuiverCanvas.jsx";
 import SidePanel from "./components/SidePanel.jsx";
 import PresetTree from "./components/PresetTree.jsx";
+import Fireworks from "./components/Fireworks.jsx";
 import { makeQuiver, emptyQuiver, renameQuiver, removeNode, autoArrange, nodeLabel, mutate, applyMutations, spectrumStatus, sameMatrix, toConstructorPayload, greenNodes, guidedHead, onSpecPath } from "./model/quiver.js";
 import { presetByKey } from "./model/presets.js";
 import { toJSONString, toShareURL, parseImport, quiverFromLocationHash } from "./model/share.js";
@@ -9,7 +10,7 @@ import { onKernelStatus, kernelStatus, killKernel } from "./compute/kernel.js";
 import { findSpectrumExact, findSpec, findSpecBFS, exportDiagnostics } from "./compute/bps.js";
 
 const DEFAULT_KEY = "a1a2";
-const APP_VERSION = "v0.15 (spec necklace)";
+const APP_VERSION = "v0.16 (fireworks)";
 
 export default function App() {
   const [quiver, setQuiver] = useState(() => quiverFromLocationHash() || makeQuiver(presetByKey(DEFAULT_KEY)));
@@ -32,6 +33,12 @@ export default function App() {
   const [computeMsg, setComputeMsg] = useState("");
   const [diagJson, setDiagJson] = useState("");     // last diagnostics report (JSON string)
   const [guideSpec, setGuideSpec] = useState(null); // { seq, charges } — the Mutate-tab spec guide
+  const [celebration, setCelebration] = useState({ n: 0, count: 0, method: "" }); // fireworks trigger
+
+  // 🎆 celebrate reaching a spectrum generator (a bumped counter replays the burst)
+  function celebrate(count, method) {
+    setCelebration((c) => ({ n: c.n + 1, count, method }));
+  }
 
   useEffect(() => onKernelStatus(setKernel), []);
   // a computed S is stale once the arrows / node count change (moves are fine)
@@ -64,6 +71,7 @@ export default function App() {
     setQuiver(nq); setMutBase(nq); setMutLog([]);
     setGuideSpec({ seq: seq || [], charges });
     setMode("mutate");
+    celebrate(charges.length, method);
   }
 
   // Primary spec-finder: bidirectional BFS over the mutation graph (fast; no
@@ -182,6 +190,7 @@ export default function App() {
     const newLog = [...mutLog, { index: k, dir }];
     const nq = mutate(quiver, k, dir);
     const st = spectrumStatus(mutBase, newLog);
+    const wasComplete = spectrumStatus(mutBase, mutLog).complete;
     if (st.complete) {
       nq.spec = { seq: newLog.map((s) => s.index), charges: st.specCharges, method: "mutation" };
       // arm the necklace guide from a hand-found spectrum generator (forward-only
@@ -190,7 +199,9 @@ export default function App() {
     }
     setQuiver(nq);
     setMutLog(newLog);
-    if (st.complete) setToast("Spectrum generator found — necklace closed!");
+    // fire the celebration only on the transition INTO completion (not every
+    // click once already complete)
+    if (st.complete && !wasComplete) { celebrate(st.specCharges.length, "mutation"); setToast("Spectrum generator found — necklace closed! 🎆"); }
   }
 
   function undoMutation() {
@@ -237,10 +248,12 @@ export default function App() {
   // while the walk is faithfully following the spec.
   const specSeq = guideSpec?.seq || [];
   const following = onSpecPath(specSeq, mutLog);
-  const green = mode === "mutate" ? greenNodes(quiver, mutBase.nodes.map((nd) => nd.charge)) : [];
-  const headNode = mode === "mutate" && following ? guidedHead(specSeq, mutLog.length) : -1;
+  const green = mode === "mutate" && !spectrum.complete ? greenNodes(quiver, mutBase.nodes.map((nd) => nd.charge)) : [];
+  // stop the guided head once the spectrum generator is reached (the walk ends
+  // there — fireworks, no auto-cycling into the next lap)
+  const headNode = mode === "mutate" && following && !spectrum.complete ? guidedHead(specSeq, mutLog.length) : -1;
   const necklace = guideSpec
-    ? { charges: guideSpec.charges, hasSeq: specSeq.length > 0, following,
+    ? { charges: guideSpec.charges, hasSeq: specSeq.length > 0, following, complete: spectrum.complete,
         pos: specSeq.length ? mutLog.length % specSeq.length : mutLog.length,
         lap: specSeq.length ? Math.floor(mutLog.length / specSeq.length) : 0 }
     : null;
@@ -334,6 +347,7 @@ export default function App() {
       )}
 
       {toast && <div className="toast">{toast}</div>}
+      <Fireworks trigger={celebration.n} count={celebration.count} method={celebration.method} />
     </div>
   );
 }
