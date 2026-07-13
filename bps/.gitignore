@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.local
 .vite/
+# Python source bundle for the Pyodide worker — a build artifact, (re)built by
+# scripts/build-bundle.mjs at prebuild from the sibling ../src.  Never commit it
+# to the canonical tree; the vendored testbed force-adds its own copy.
+public/kalgebra-src.zip

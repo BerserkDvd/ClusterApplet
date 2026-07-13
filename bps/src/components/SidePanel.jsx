@@ -7,6 +7,7 @@ export default function SidePanel({
   quiver, onChange, onCopy, mutLog = [], spectrum = { complete: false, specCharges: [] },
   onUndoMutation, onClearMutations,
   kernel = { status: "idle" }, computing = false, exactS = null, computeMsg = "", onFindSExact, onFindSpec,
+  onDiagnostics, diagJson = "", onCopyDiag,
 }) {
   const v = validateQuiver(quiver);
   const n = quiver.nodes.length;
@@ -121,6 +122,19 @@ export default function SidePanel({
           <>
             <p className="hint" style={{ marginTop: 8 }}>S = Σ c<sub>γ</sub>(𝖖) X<sub>γ</sub> to 𝖖<sup>{exactS.K}</sup> — recursive node-removal (the F-finder):</p>
             <pre className="snippet">{exactS.terms.map(([g, c]) => `X_(${g.join(",")}) : ${c}`).join("\n")}</pre>
+          </>
+        )}
+        <div className="row" style={{ marginTop: 8 }}>
+          <button disabled={computing} onClick={onDiagnostics}
+            title="Run a self-test on the loaded kernel and copy a JSON report to paste back for debugging">
+            🩺 Export diagnostics
+          </button>
+          {diagJson && <button onClick={onCopyDiag}>Copy report</button>}
+        </div>
+        {diagJson && (
+          <>
+            <p className="hint" style={{ marginTop: 8 }}>Copied to clipboard — paste this back if compute misbehaves:</p>
+            <pre className="snippet" style={{ maxHeight: 220, overflow: "auto" }}>{diagJson}</pre>
           </>
         )}
       </section>

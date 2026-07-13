@@ -52,7 +52,7 @@ async function fetchBundle() {
   for (const url of ["./kalgebra-src.zip", "../kalgebra-lab/kalgebra-src.zip"]) {
     try {
       const resp = await fetch(url);
-      if (resp.ok) return await resp.arrayBuffer();
+      if (resp.ok) return { buf: await resp.arrayBuffer(), url };
     } catch (e) { /* try next */ }
   }
   throw new Error("could not fetch kalgebra-src.zip (tried ./ and ../kalgebra-lab/)");
@@ -64,13 +64,18 @@ async function init() {
     pyodide = await loadPyodide({ indexURL: INDEX_URL });
 
     post({ type: "status", msg: "Fetching the KAlgebra source bundle…" });
-    const buf = await fetchBundle();
+    const { buf, url } = await fetchBundle();
     pyodide.unpackArchive(buf, "zip");        // extracts src/ into the working dir
 
     pyodide.runPython(BOOTSTRAP);
     pyodide.runPython(RUNNER);
     runCell = pyodide.globals.get("_run_cell");
-    post({ type: "ready" });
+    // Seed the cell namespace so diagnostics can report the runtime provenance.
+    pyodide.runPython(
+      "_NS['_BUNDLE_SOURCE'] = " + JSON.stringify(url) +
+      "; _NS['_PYODIDE_VERSION'] = " + JSON.stringify(PYODIDE_VERSION)
+    );
+    post({ type: "ready", bundleSource: url });
   } catch (err) {
     post({ type: "fatal", msg: (err && err.message) ? err.message : String(err) });
   }

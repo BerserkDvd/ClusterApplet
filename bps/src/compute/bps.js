@@ -60,6 +60,52 @@ print(json.dumps(None if spec is None else [list(g) for g in spec]))
   return { spec };
 }
 
+// Self-test: run a canned pentagon compute on the loaded bundle and report the
+// runtime provenance (bundle source, Pyodide/Python versions, src dirs, module
+// imports).  Returns a plain object; every check is guarded so this never
+// throws from the Python side — a broken kernel still yields a useful report.
+export async function exportDiagnostics(payload = null) {
+  const B = payload ? matLit(payload.pairing) : "[[0, 1], [-1, 0]]";
+  const nc = payload ? chargesLit(payload.node_charges) : "[(1, 0), (0, 1)]";
+  const src = `
+import json, sys, pathlib, platform
+d = {"ok": True, "python": sys.version.split()[0], "platform": platform.platform(),
+     "bundle_source": None, "pyodide": None, "src_dirs": None,
+     "imports": {}, "checks": {}}
+try: d["bundle_source"] = _BUNDLE_SOURCE
+except Exception: d["bundle_source"] = "unknown (pre-0.13 worker?)"
+try: d["pyodide"] = _PYODIDE_VERSION
+except Exception: pass
+try:
+    d["src_dirs"] = sum(1 for p in pathlib.Path("src").rglob("*") if p.is_dir() and p.name != "__pycache__")
+except Exception as e:
+    d["src_dirs"] = f"ERR {e}"
+for mod in ["kalgebra", "laurent_poly", "zplus_ring", "bps_kalgebra", "recursive_spectrum"]:
+    try:
+        __import__(mod); d["imports"][mod] = "ok"
+    except Exception as e:
+        d["imports"][mod] = f"{type(e).__name__}: {e}"; d["ok"] = False
+try:
+    from recursive_spectrum import extract_spec_from_quiver
+    spec = extract_spec_from_quiver(${B}, ${nc}, cutoff=8)
+    d["checks"]["spec"] = None if spec is None else [list(g) for g in spec]
+except Exception:
+    import traceback; d["checks"]["spec"] = "ERR " + traceback.format_exc().strip().splitlines()[-1]; d["ok"] = False
+try:
+    from bps_kalgebra import BPSKAlgebra
+    A = BPSKAlgebra(pairing=${B}, node_charges=${nc}, build_S=True)
+    S = A.spectrum_generator(K=6)
+    d["checks"]["S_terms"] = sum(1 for c in S.values() if str(c) not in ("0", ""))
+except Exception:
+    import traceback; d["checks"]["S_terms"] = "ERR " + traceback.format_exc().strip().splitlines()[-1]; d["ok"] = False
+print(json.dumps(d))
+`;
+  const res = await run(src);
+  if (res.err) return { ok: false, kernel_error: pyError(res.err), raw: res.err };
+  try { return JSON.parse((res.stdout || "{}").trim() || "{}"); }
+  catch (e) { return { ok: false, parse_error: String(e), stdout: res.stdout }; }
+}
+
 // Structure constants L_a · L_b = Σ_c C^c_ab L_c.  Returns a display string.
 export async function computeMultiply(payload, a, b) {
   const { B, nc, spec } = payloadArgs(payload);

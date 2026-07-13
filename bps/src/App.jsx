@@ -6,9 +6,10 @@ import { makeQuiver, emptyQuiver, renameQuiver, removeNode, autoArrange, nodeLab
 import { presetByKey } from "./model/presets.js";
 import { toJSONString, toShareURL, parseImport, quiverFromLocationHash } from "./model/share.js";
 import { onKernelStatus } from "./compute/kernel.js";
-import { findSpectrumExact, findSpec } from "./compute/bps.js";
+import { findSpectrumExact, findSpec, exportDiagnostics } from "./compute/bps.js";
 
 const DEFAULT_KEY = "a1a2";
+const APP_VERSION = "v0.13 (diagnostics)";
 
 export default function App() {
   const [quiver, setQuiver] = useState(() => quiverFromLocationHash() || makeQuiver(presetByKey(DEFAULT_KEY)));
@@ -29,6 +30,7 @@ export default function App() {
   const [computing, setComputing] = useState(false);
   const [exactS, setExactS] = useState(null);       // { terms, K } or null
   const [computeMsg, setComputeMsg] = useState("");
+  const [diagJson, setDiagJson] = useState("");     // last diagnostics report (JSON string)
 
   useEffect(() => onKernelStatus(setKernel), []);
   // a computed S is stale once the arrows / node count change (moves are fine)
@@ -69,6 +71,32 @@ export default function App() {
     } finally {
       setComputing(false);
     }
+  }
+
+  // Self-test / paste-back diagnostics: assemble the JS-side context (kernel
+  // state, bundle source, environment) + the Python-side self-test into one JSON
+  // blob the user can copy back into a chat for debugging.
+  async function doDiagnostics() {
+    setComputing(true); setComputeMsg("");
+    const js = {
+      app_version: APP_VERSION,
+      when: new Date().toISOString(),
+      href: (typeof location !== "undefined" && location.href) || null,
+      userAgent: (typeof navigator !== "undefined" && navigator.userAgent) || null,
+      kernel: { status: kernel.status, bundleSource: kernel.bundleSource || null, statusMsg: kernel.statusMsg || "" },
+      quiver: { name: quiver.name, n: quiver.nodes.length, B: quiver.B },
+    };
+    let py;
+    try {
+      py = await exportDiagnostics(toConstructorPayload(quiver));
+    } catch (e) {
+      py = { ok: false, kernel_error: String(e.message || e) };
+    }
+    const report = JSON.stringify({ diagnostics: "kalgebra-bps-applet", js, python: py }, null, 2);
+    setDiagJson(report);
+    try { await navigator.clipboard.writeText(report); setToast("Diagnostics copied — paste them back"); }
+    catch { setToast("Diagnostics ready — copy from the panel"); }
+    setComputing(false);
   }
 
   function newBaseQuiver(nq) {
@@ -147,7 +175,7 @@ export default function App() {
           <span className="logo">K𝖖</span>
           <div>
             <div className="title">KAlgebra Applets</div>
-            <div className="subtitle">BPS quiver · v0.12 (compute)</div>
+            <div className="subtitle">BPS quiver · {APP_VERSION}</div>
           </div>
         </div>
 
@@ -195,7 +223,8 @@ export default function App() {
         <SidePanel quiver={quiver} onChange={handleChange} onCopy={copy}
           mutLog={mutLog} spectrum={spectrum} onUndoMutation={undoMutation} onClearMutations={clearMutations}
           kernel={kernel} computing={computing} exactS={exactS} computeMsg={computeMsg}
-          onFindSExact={doFindSExact} onFindSpec={doFindSpec} />
+          onFindSExact={doFindSExact} onFindSpec={doFindSpec}
+          onDiagnostics={doDiagnostics} diagJson={diagJson} onCopyDiag={() => copy(diagJson, "diagnostics")} />
       </main>
 
       {presetsOpen && (

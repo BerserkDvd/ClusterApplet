@@ -6,8 +6,10 @@
   "description": "The KAlgebra Applet Suite — web tools driving the real KAlgebra family (Plan 39). v0.1: BPS-quiver input + preset loading (light path).",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/build-bundle.mjs",
     "build": "vite build",
     "preview": "vite preview",
+    "bundle": "node scripts/build-bundle.mjs",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {

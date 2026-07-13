@@ -6,18 +6,19 @@ let worker = null;
 let ready = false;
 let status = "idle";       // idle | loading | ready | error
 let statusMsg = "";
+let bundleSource = null;   // which kalgebra-src.zip URL the worker loaded
 let idCounter = 0;
 const pending = new Map();
 const listeners = new Set();
 
-function emit() { const s = { status, statusMsg, ready }; for (const l of listeners) l(s); }
+function emit() { const s = { status, statusMsg, ready, bundleSource }; for (const l of listeners) l(s); }
 
 export function onKernelStatus(fn) {
   listeners.add(fn);
-  fn({ status, statusMsg, ready });
+  fn({ status, statusMsg, ready, bundleSource });
   return () => listeners.delete(fn);
 }
-export function kernelStatus() { return { status, statusMsg, ready }; }
+export function kernelStatus() { return { status, statusMsg, ready, bundleSource }; }
 
 function ensureWorker() {
   if (worker) return;
@@ -27,7 +28,7 @@ function ensureWorker() {
   worker.onmessage = (e) => {
     const m = e.data || {};
     if (m.type === "status") { statusMsg = m.msg; emit(); }
-    else if (m.type === "ready") { ready = true; status = "ready"; statusMsg = "Kernel ready"; emit(); }
+    else if (m.type === "ready") { ready = true; status = "ready"; statusMsg = "Kernel ready"; bundleSource = m.bundleSource || null; emit(); }
     else if (m.type === "fatal") {
       status = "error"; statusMsg = m.msg; emit();
       for (const [, r] of pending) r.reject(new Error(m.msg));
