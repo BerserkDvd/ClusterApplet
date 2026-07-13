@@ -3,7 +3,11 @@ import { addArrow, toConstructorPayload, toPythonSnippet, validateQuiver, flavou
 
 // Right-hand inspector: exchange-matrix editor, the flavour lattice
 // Γ_f = ker(B), and the live BPSKAlgebra(...) constructor payload.
-export default function SidePanel({ quiver, onChange, onCopy, mutLog = [], spectrum = { complete: false, specCharges: [] }, onUndoMutation, onClearMutations }) {
+export default function SidePanel({
+  quiver, onChange, onCopy, mutLog = [], spectrum = { complete: false, specCharges: [] },
+  onUndoMutation, onClearMutations,
+  kernel = { status: "idle" }, computing = false, exactS = null, computeMsg = "", onFindSExact,
+}) {
   const v = validateQuiver(quiver);
   const n = quiver.nodes.length;
   const f = n ? flavourRank(quiver) : 0;
@@ -92,6 +96,23 @@ export default function SidePanel({ quiver, onChange, onCopy, mutLog = [], spect
           <p className="mono small">S = {quiver.spec.charges.map((c) => `E_q(X_(${c.join(",")}))`).join(" · ")}</p>
         ) : (
           <p className="dim">Not computed. The <b>S-finder</b> (real BPSKAlgebra) will compute it — coming in the compute path.</p>
+        )}
+      </section>
+
+      <section>
+        <h3>Compute — real BPSKAlgebra <span className="badge">exact · in-browser</span></h3>
+        <p className="hint">Runs the actual Python algebra in your browser (Pyodide). First run loads the kernel (~10 s, then cached).</p>
+        <button className="primary" disabled={computing || !v.ok || n === 0} onClick={onFindSExact}>
+          {computing ? "Computing…" : "⚙ Find S (exact, recursive)"}
+        </button>
+        {kernel.status === "loading" && <p className="hint" style={{ marginTop: 8 }}>{kernel.statusMsg}</p>}
+        {kernel.status === "error" && <div className="banner err" style={{ marginTop: 8 }}>⚠ {kernel.statusMsg}</div>}
+        {computeMsg && kernel.status !== "error" && <div className="banner warn" style={{ marginTop: 8 }}>{computeMsg}</div>}
+        {exactS && exactS.terms.length > 0 && (
+          <>
+            <p className="hint" style={{ marginTop: 8 }}>S = Σ c<sub>γ</sub>(𝖖) X<sub>γ</sub> to 𝖖<sup>{exactS.K}</sup> — recursive node-removal (the F-finder):</p>
+            <pre className="snippet">{exactS.terms.map(([g, c]) => `X_(${g.join(",")}) : ${c}`).join("\n")}</pre>
+          </>
         )}
       </section>
 

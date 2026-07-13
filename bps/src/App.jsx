@@ -2,9 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import QuiverCanvas from "./components/QuiverCanvas.jsx";
 import SidePanel from "./components/SidePanel.jsx";
 import PresetTree from "./components/PresetTree.jsx";
-import { makeQuiver, emptyQuiver, renameQuiver, removeNode, autoArrange, nodeLabel, mutate, applyMutations, spectrumStatus, sameMatrix } from "./model/quiver.js";
+import { makeQuiver, emptyQuiver, renameQuiver, removeNode, autoArrange, nodeLabel, mutate, applyMutations, spectrumStatus, sameMatrix, toConstructorPayload } from "./model/quiver.js";
 import { presetByKey } from "./model/presets.js";
 import { toJSONString, toShareURL, parseImport, quiverFromLocationHash } from "./model/share.js";
+import { onKernelStatus } from "./compute/kernel.js";
+import { findSpectrumExact } from "./compute/bps.js";
 
 const DEFAULT_KEY = "a1a2";
 
@@ -22,11 +24,34 @@ export default function App() {
   const [toast, setToast] = useState("");
   const canvasRef = useRef(null);
 
+  // compute (real BPSKAlgebra via Pyodide)
+  const [kernel, setKernel] = useState({ status: "idle", ready: false, statusMsg: "" });
+  const [computing, setComputing] = useState(false);
+  const [exactS, setExactS] = useState(null);       // { terms, K } or null
+  const [computeMsg, setComputeMsg] = useState("");
+
+  useEffect(() => onKernelStatus(setKernel), []);
+  // a computed S is stale once the arrows / node count change (moves are fine)
+  useEffect(() => { setExactS(null); setComputeMsg(""); }, [JSON.stringify(quiver.B), quiver.nodes.length]);
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 1800);
     return () => clearTimeout(t);
   }, [toast]);
+
+  async function doFindSExact() {
+    setComputing(true); setComputeMsg(""); setExactS(null);
+    try {
+      const out = await findSpectrumExact(toConstructorPayload(quiver));
+      setExactS(out);
+      if (!out.terms.length) setComputeMsg("No S returned (chart may have no finite spectrum generator).");
+    } catch (e) {
+      setComputeMsg(String(e.message || e));
+    } finally {
+      setComputing(false);
+    }
+  }
 
   function newBaseQuiver(nq) {
     setQuiver(nq); setMutBase(nq); setMutLog([]);
@@ -104,7 +129,7 @@ export default function App() {
           <span className="logo">K𝖖</span>
           <div>
             <div className="title">KAlgebra Applets</div>
-            <div className="subtitle">BPS quiver input · v0.9</div>
+            <div className="subtitle">BPS quiver · v0.10 (compute)</div>
           </div>
         </div>
 
@@ -150,7 +175,8 @@ export default function App() {
           </div>
         </div>
         <SidePanel quiver={quiver} onChange={handleChange} onCopy={copy}
-          mutLog={mutLog} spectrum={spectrum} onUndoMutation={undoMutation} onClearMutations={clearMutations} />
+          mutLog={mutLog} spectrum={spectrum} onUndoMutation={undoMutation} onClearMutations={clearMutations}
+          kernel={kernel} computing={computing} exactS={exactS} computeMsg={computeMsg} onFindSExact={doFindSExact} />
       </main>
 
       {presetsOpen && (
