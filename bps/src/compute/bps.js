@@ -30,7 +30,10 @@ import json
 from bps_kalgebra import BPSKAlgebra
 A = BPSKAlgebra(pairing=${B}, node_charges=${nc}, build_S=True)
 S = A.spectrum_generator(K=${K})
-terms = [[list(g), str(c)] for g, c in sorted(S.items()) if str(c) not in ("0", "")]
+# order the positive cone the way the F-solver does: by node-basis cone-degree
+# (Σ coords) then coords.  node_charges here are the identity basis, so coords = γ.
+_key = lambda kv: (sum(kv[0]), kv[0])
+terms = [[list(g), str(c)] for g, c in sorted(S.items(), key=_key) if str(c) not in ("0", "")]
 print(json.dumps(terms))
 `;
   const res = await run(src);

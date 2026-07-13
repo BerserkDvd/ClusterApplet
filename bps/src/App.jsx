@@ -129,7 +129,7 @@ export default function App() {
           <span className="logo">K𝖖</span>
           <div>
             <div className="title">KAlgebra Applets</div>
-            <div className="subtitle">BPS quiver · v0.10 (compute)</div>
+            <div className="subtitle">BPS quiver · v0.11 (compute)</div>
           </div>
         </div>
 
