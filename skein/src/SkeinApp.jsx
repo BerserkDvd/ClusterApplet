@@ -3,6 +3,7 @@ import TriangulationCanvas from "./components/TriangulationCanvas.jsx";
 import TriangulationPanel from "./components/TriangulationPanel.jsx";
 import BuildPanel from "./components/BuildPanel.jsx";
 import SkeinComputePanel from "./components/SkeinComputePanel.jsx";
+import SkeinCurvePanel from "./components/SkeinCurvePanel.jsx";
 import { onKernelStatus, startKernel } from "./compute/kernel.js";
 import { recognizeSkeinKAlgebra } from "./model/skein_recognize.js";
 import { flip, renameTriangulation, canFlip, vertices } from "./model/triangulation.js";
@@ -38,6 +39,7 @@ export default function SkeinApp() {
   const [polyN, setPolyN] = useState(5);
   const [toast, setToast] = useState("");
   const [showCompute, setShowCompute] = useState(false);
+  const [showCurve, setShowCurve] = useState(false);
   const [kernel, setKernel] = useState({ status: "idle", ready: false, statusMsg: "" });
 
   useEffect(() => {
@@ -178,6 +180,10 @@ export default function SkeinApp() {
           onClick={() => { const n = !showCompute; setShowCompute(n); if (n) startKernel(); }}>
           🔗 SkeinKAlgebra{rec.ok ? "" : " ·"}
         </button>
+        <button className={showCurve ? "on" : ""} title="Draw a simple closed curve → its tropical charge γ and quantum trace F (any surface)"
+          onClick={() => { const n = !showCurve; setShowCurve(n); if (n) startKernel(); }}>
+          🌀 Curve → F
+        </button>
 
         <div className="spacer" />
 
@@ -202,6 +208,7 @@ export default function SkeinApp() {
         </div>
 
         <div className="panel-stack">
+          {showCurve && <SkeinCurvePanel tri={tri} kernel={kernel} />}
           {showCompute && <SkeinComputePanel rec={rec} kernel={kernel} />}
           {mode === "build" && (
             <BuildPanel tri={tri} selFree={selFree} selInternal={selInternal} selTriangle={selTriangle}

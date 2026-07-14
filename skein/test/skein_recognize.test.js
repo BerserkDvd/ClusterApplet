@@ -32,3 +32,16 @@ test("closed / punctured / oversized charts honest-fail", () => {
   assert.equal(big.ok, false);
   assert.match(big.reason, /supports n/);
 });
+
+// ── interior-puncture detection (peripheral-loop pickers) ───────────────────
+import { interiorPunctures } from "../src/compute/skein_curves.js";
+test("interiorPunctures = vertices touched by no boundary edge", () => {
+  // tetrahedron (closed): all 4 vertices interior
+  assert.deepEqual(interiorPunctures(presetByKey("tetrahedron")), [0, 1, 2, 3]);
+  // pentagon disk: no interior punctures
+  assert.deepEqual(interiorPunctures(presetByKey("p5")), []);
+  // once-punctured torus: the single vertex is interior
+  assert.deepEqual(interiorPunctures(presetByKey("torus")), [0]);
+  // SU(2) N_f=3 disk: vertices 2,3 interior (0,1 are boundary marked points)
+  assert.deepEqual(interiorPunctures(presetByKey("nf3disk")), [2, 3]);
+});
