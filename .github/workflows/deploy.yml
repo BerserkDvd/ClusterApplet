@@ -43,6 +43,17 @@ jobs:
       - name: Assemble /skein/ into the Pages output
         run: mkdir -p dist/skein && cp -r skein/dist/. dist/skein/
 
+      # Dice Lab applet (no build step — static ES modules) -> dist/dnd/
+      - name: Test Dice Lab engine
+        working-directory: dnd
+        run: npm test
+
+      - name: Assemble /dnd/ into the Pages output
+        run: |
+          mkdir -p dist/dnd
+          cp -r dnd/. dist/dnd/
+          rm -rf dist/dnd/test dist/dnd/scripts dist/dnd/package.json dist/dnd/README.md
+
       - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3
         with:
