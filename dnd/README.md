@@ -1,0 +1,76 @@
+# Dice Lab — D&D dice probabilities
+
+Deployed at `…/ClusterApplet/dnd/`. Type a dice formula, get the **exact**
+probability of every possible total: a table, text/LaTeX exports, and a plot.
+
+No build step and no dependencies — plain ES modules, opened straight by the
+browser. It is a standalone folder: nothing here imports from the rest of the
+repo, and the repo imports nothing from here.
+
+```bash
+cd dnd
+npm test                       # 27 engine tests (node --test, no deps)
+python3 -m http.server 5180    # then open http://localhost:5180/
+```
+
+(A server is needed only because ES modules do not load over `file://`.)
+
+## What it does
+
+- **Notation** — `NdX` groups, `+`/`-`, flat modifiers, `d%`, and keep/drop:
+  `4d6kh3` (keep highest 3), `2d20kl1` (disadvantage), `4d6dl1` (drop lowest).
+  A subtracted group (`1d8 - 1d6`, or clicking a die past zero) is a genuinely
+  negative contribution, not an error.
+- **Clickable dice** — left-click a die in the tray to add it, right-click to
+  take one away; the `±` buttons do the same for touch and keyboard. Clicks
+  merge into the existing group (`3d20` → `4d20`) and the text box stays in
+  sync both ways.
+- **Exports** — plain text, CSV, Markdown, a `booktabs` LaTeX `table`, and a
+  `pgfplots` chart of the distribution. Copy or download; exports always carry
+  every row even when the on-page table is capped.
+- **Plot** — probability of exactly / at least / at most each total, with a
+  hover-and-keyboard tooltip, a mean marker, and an optional target line. Dense
+  ranges switch from columns to a line + wash automatically.
+- **Roll it** — one honest roll, showing each die and which ones a keep/drop
+  group discarded.
+- **Simulate 100 / 10,000 / 1,000,000 ×** — rolls the formula that many times
+  and draws the empirical distribution over the exact one, reporting the sample
+  mean, the largest gap, and the total-variation distance. Watching the orange
+  line converge onto the blue bars as the count grows is the whole point.
+- **Share** — the formula lives in the URL hash.
+
+## How the numbers are computed
+
+Everything is exact integer arithmetic; there is no sampling anywhere in the
+probability path (the simulator is a separate, clearly-labelled overlay).
+
+- A distribution is a dense array of **BigInt outcome counts** indexed from its
+  minimum, so a probability is a ratio of whole numbers right up to the final
+  division. `200d100` has 100²⁰⁰ outcomes — 401 digits — and its mean still
+  comes out exactly 10100.
+- Adding one `dX` is a **sliding-window sum**, O(range) per die rather than
+  O(range·X); a subtracted die is the same window with a different minimum.
+- **Keep/drop** (`4d6kh3`) uses a DP that walks the face values in preference
+  order and chooses how many dice show each value, so the kept sum falls out
+  without enumerating N-tuples. It is checked against brute-force enumeration
+  in the tests.
+- The BigInt→double conversion shifts by a power of two before dividing, so
+  ratios stay correctly rounded instead of drifting (`10.5`, not
+  `10.499999999999998`).
+
+Limits are enforced rather than left to hang: 500 dice, d1000, 20001 distinct
+totals, and a work budget on the keep/drop DP. Anything past that is refused
+with a message instead of freezing the tab.
+
+## Layout
+
+| File | What it is |
+|---|---|
+| `src/dice.js` | parser, exact distribution engine, stats, sampler |
+| `src/format.js` | number formatting + the five export writers |
+| `src/chart.js` | the SVG plot (marks, axes, tooltip, overlay) |
+| `src/app.js` | UI wiring: tray, presets, simulation, exports |
+| `test/dice.test.js` | engine tests, incl. brute-force cross-checks |
+
+Chart colours follow a two-slot categorical palette validated for both light
+and dark surfaces (contrast, and separation under colour-vision deficiency).

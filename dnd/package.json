@@ -1,0 +1,12 @@
+{
+  "name": "dnd-dice-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dice Lab — exact probabilities for D&D dice notation: table, LaTeX/text export, plot, clickable dice tray and a roll simulator. Dependency-free static page.",
+  "scripts": {
+    "dev": "node --run serve",
+    "serve": "python3 -m http.server 5180",
+    "test": "node --test test/*.test.js"
+  }
+}
