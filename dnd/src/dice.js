@@ -367,6 +367,7 @@ export function summarize(dist, rows) {
     median,
     modes,
     modeP: ratio(best, total),
+    modeWays: best,
     bins: counts.length,
   };
 }

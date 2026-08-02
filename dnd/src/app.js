@@ -11,7 +11,19 @@ import {
   compileSampler,
   DiceError,
 } from "./dice.js";
-import { EXPORTERS, exportAs, pct, oneIn, bigStr } from "./format.js";
+import {
+  EXPORTERS,
+  exportAs,
+  pct,
+  oneIn,
+  bigStr,
+  approxBig,
+  columnsFor,
+  denominatorOf,
+  denominatorNote,
+  useFractions,
+  fraction,
+} from "./format.js";
 import { createChart } from "./chart.js";
 
 const $ = (id) => document.getElementById(id);
@@ -57,6 +69,7 @@ const state = {
   mode: "pmf",
   target: null,
   format: "text",
+  display: "percent", // "percent" | "fraction" — how probabilities are written
   last: null,
   sim: null,
 };
@@ -147,14 +160,25 @@ function syncTray() {
 
 /* ------------------------------------------------------------- render */
 
+/** One probability, written the way the display toggle asks for. */
+function prob(ways, p, stats) {
+  return useFractions(state.display, stats) ? fraction(ways, denominatorOf(stats)) : `${pct(p, 2)}%`;
+}
+
 function tiles(stats) {
   const modes = stats.modes.length > 3 ? `${stats.modes[0]}…${stats.modes[stats.modes.length - 1]}` : stats.modes.join(", ");
   return [
     ["Mean", stats.mean.toFixed(2), `median ${stats.median}`],
     ["Std. deviation", stats.stdev.toFixed(2), "spread around the mean"],
-    ["Most likely", modes, `${pct(stats.modeP, 2)}% of rolls`],
+    ["Most likely", modes, `${prob(stats.modeWays, stats.modeP, stats)} of rolls`],
     ["Range", `${stats.min} to ${stats.max}`, `${stats.bins} possible totals`],
-    ["Equally likely outcomes", bigStr(stats.total), "denominator of every row"],
+    [
+      "Equally likely outcomes",
+      approxBig(stats.total),
+      denominatorOf(stats).long
+        ? `${denominatorOf(stats).digits} digits — denominator of every row`
+        : "denominator of every row",
+    ],
   ];
 }
 
@@ -181,25 +205,47 @@ function renderSummary(result) {
   const { rows, stats } = result;
   const i = state.target - stats.min;
   const p = i <= 0 ? 1 : i >= rows.length ? 0 : rows[i].ge;
+  const ways = i <= 0 ? stats.total : i >= rows.length ? 0n : rows[i].geWays;
+  const denom = denominatorOf(stats);
+  const asFraction = useFractions(state.display, stats);
   hero.hidden = false;
   $("hero-label").textContent = `Chance of hitting ${state.target}+`;
-  $("hero-value").textContent = `${pct(p, 2)}%`;
-  $("hero-note").textContent = oneIn(p);
+  const odds = oneIn(p, ways, stats.total);
+  $("hero-value").textContent = asFraction ? fraction(ways, denom) : `${pct(p, 2)}%`;
+  $("hero-note").textContent = asFraction ? `${pct(p, 2)}% · ${odds}` : odds;
 }
 
 function renderTable(result) {
-  const { rows } = result;
+  const { rows, stats } = result;
+  const cols = columnsFor(state.display, stats, { compact: true });
   const shown = Math.min(rows.length, TABLE_CAP);
+
+  const head = document.createElement("tr");
+  for (const c of [...cols, { head: "Odds" }]) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = c.head.replace(">=", "≥").replace("<=", "≤");
+    head.append(th);
+  }
+  $("table-head").replaceChildren(head);
+
   const parts = new Array(shown);
   for (let i = 0; i < shown; i++) {
     const r = rows[i];
     const hit = state.target != null && r.value >= state.target;
     parts[i] =
-      `<tr${hit ? ' class="is-hit"' : ""}><td>${r.value}</td><td>${bigStr(r.ways)}</td>` +
-      `<td>${pct(r.p)}</td><td>${pct(r.ge)}</td><td>${pct(r.le)}</td><td>${oneIn(r.p)}</td></tr>`;
+      `<tr${hit ? ' class="is-hit"' : ""}>` +
+      cols.map((c) => `<td>${c.get(r)}</td>`).join("") +
+      `<td>${oneIn(r.p, r.ways, stats.total)}</td></tr>`;
   }
   // Every cell is a number this module formatted itself — no external strings.
   $("table-body").innerHTML = parts.join("");
+
+  const denom = denominatorOf(stats);
+  const note = $("denom-note");
+  note.hidden = state.display !== "fraction";
+  note.textContent = state.display === "fraction" ? denominatorNote(denom) : "";
+
   $("table-note").textContent =
     shown < rows.length
       ? `showing the first ${shown.toLocaleString()} of ${rows.length.toLocaleString()} totals — exports include all of them`
@@ -211,6 +257,7 @@ function renderExport(result) {
     formula: result.canonical,
     rows: result.rows,
     stats: result.stats,
+    display: state.display,
   });
 }
 
@@ -237,6 +284,8 @@ function render() {
     target: state.target,
     formula: result.canonical,
     sim: state.sim,
+    display: state.display,
+    denom: denominatorOf(result.stats),
   });
   renderSummary(result);
   renderTable(result);
@@ -538,12 +587,21 @@ function initTheme() {
   });
 }
 
+function syncDisplayButtons() {
+  document
+    .querySelectorAll("[data-display]")
+    .forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.display === state.display)));
+}
+
 function init() {
   buildTray();
   buildPresets();
   buildFormats();
   buildSimControls();
   initTheme();
+  const savedDisplay = localStorage.getItem("dicelab-display");
+  if (savedDisplay === "fraction" || savedDisplay === "percent") state.display = savedDisplay;
+  syncDisplayButtons();
   readHash();
 
   $("formula").addEventListener("input", onType);
@@ -573,6 +631,22 @@ function init() {
       if (state.last) render();
     })
   );
+
+  document.querySelectorAll("[data-display]").forEach((b) =>
+    b.addEventListener("click", () => {
+      state.display = b.dataset.display;
+      localStorage.setItem("dicelab-display", state.display);
+      syncDisplayButtons();
+      if (state.last) render();
+    })
+  );
+
+  $("genfun").addEventListener("click", () => {
+    state.format = "genfun";
+    $("export-format").value = "genfun";
+    if (state.last) renderExport(state.last);
+    $("export-text").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
 
   $("target").addEventListener("input", () => {
     const raw = $("target").value.trim();

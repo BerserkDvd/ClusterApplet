@@ -430,10 +430,18 @@ main {
   color: var(--text-secondary);
 }
 .hero__value {
-  font-size: 48px;
+  /* A fraction like 460/1296 is far wider than "35.49%" — let it shrink
+     rather than break the tile. */
+  font-size: clamp(28px, 6vw, 48px);
   line-height: 1.05;
   font-weight: 650;
   letter-spacing: -0.02em;
+}
+
+.denom-note {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
 }
 .hero__note {
   font-size: 12.5px;
@@ -627,6 +635,13 @@ main {
 }
 .chart-tip__label {
   color: var(--text-secondary);
+}
+.chart-tip__foot {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11.5px;
 }
 
 .chart-legend {

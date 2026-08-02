@@ -100,6 +100,10 @@
             <span class="field__label">Target / DC</span>
             <input id="target" class="field__input field__input--num" type="number" placeholder="none" inputmode="numeric" />
           </label>
+          <div class="segmented" role="group" aria-label="How to write probabilities">
+            <button class="seg" type="button" data-display="percent" aria-pressed="true">%</button>
+            <button class="seg" type="button" data-display="fraction" aria-pressed="false">n&frasl;N</button>
+          </div>
           <div class="sim-controls" id="sim-controls" role="group" aria-label="Roll the dice many times">
             <span class="sim-controls__label">Simulate</span>
           </div>
@@ -115,18 +119,10 @@
           <h2 class="panel__title">Every outcome</h2>
           <span class="panel__note" id="table-note"></span>
         </div>
+        <p class="denom-note" id="denom-note" hidden></p>
         <div class="table-scroll">
           <table class="dist-table">
-            <thead>
-              <tr>
-                <th scope="col">Total</th>
-                <th scope="col">Ways</th>
-                <th scope="col">P(=) %</th>
-                <th scope="col">P(≥) %</th>
-                <th scope="col">P(≤) %</th>
-                <th scope="col">Odds</th>
-              </tr>
-            </thead>
+            <thead id="table-head"></thead>
             <tbody id="table-body"></tbody>
           </table>
         </div>
@@ -141,6 +137,7 @@
               <span class="field__label">Format</span>
               <select id="export-format" class="field__input field__input--select"></select>
             </label>
+            <button id="genfun" class="btn btn--ghost" type="button" title="Switch to the probability generating function, with the common denominator factored out">P(x)</button>
             <button id="copy" class="btn btn--primary" type="button">Copy</button>
             <button id="download" class="btn btn--ghost" type="button">Download</button>
             <span class="copy-status" id="copy-status" role="status"></span>

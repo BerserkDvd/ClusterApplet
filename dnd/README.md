@@ -25,9 +25,19 @@ python3 -m http.server 5180    # then open http://localhost:5180/
   take one away; the `±` buttons do the same for touch and keyboard. Clicks
   merge into the existing group (`3d20` → `4d20`) and the text box stays in
   sync both ways.
-- **Exports** — plain text, CSV, Markdown, a `booktabs` LaTeX `table`, and a
-  `pgfplots` chart of the distribution. Copy or download; exports always carry
-  every row even when the on-page table is capped.
+- **Probabilities as whole numbers** — the `%` / `n⁄N` toggle rewrites every
+  probability as a count of ways over the common denominator. Since a
+  distribution is a count of equally likely outcomes, every row of a formula is
+  a whole number over the *same* total, so the denominator is said once above
+  the table and the columns carry bare numerators (`172`, not `172/1296`).
+  Rolls whose counts run to hundreds of digits fall back to percentages and say
+  why.
+- **Exports** — plain text, CSV, Markdown, a `booktabs` LaTeX `table`, a
+  `pgfplots` chart, and the **probability generating function**
+  P(x) = Σₙ pₙ xⁿ with the common denominator factored out — so the
+  coefficients are exact integers that sum to N (that is P(1) = 1), in LaTeX or
+  in a SymPy-pasteable plain form. Copy or download; exports always carry every
+  row even when the on-page table is capped.
 - **Plot** — probability of exactly / at least / at most each total, with a
   hover-and-keyboard tooltip, a mean marker, and an optional target line. Dense
   ranges switch from columns to a line + wash automatically.
@@ -71,6 +81,7 @@ with a message instead of freezing the tab.
 | `src/chart.js` | the SVG plot (marks, axes, tooltip, overlay) |
 | `src/app.js` | UI wiring: tray, presets, simulation, exports |
 | `test/dice.test.js` | engine tests, incl. brute-force cross-checks |
+| `test/format.test.js` | numerator mode, exports, CSV validity, P(x) at x=1 |
 
 Chart colours follow a two-slot categorical palette validated for both light
 and dark surfaces (contrast, and separation under colour-vision deficiency).
