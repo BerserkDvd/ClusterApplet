@@ -27,7 +27,7 @@ import {
 import { createChart } from "./chart.js";
 
 const $ = (id) => document.getElementById(id);
-const TABLE_CAP = 5000; // rows rendered; exports always carry every row
+const TABLE_CAP = 1500; // rows rendered; exports always carry every row
 
 const DICE = [4, 6, 8, 10, 12, 20, 100];
 
@@ -111,6 +111,7 @@ function buildTray() {
   tray.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-faces]");
     if (!btn) return;
+    flushTyping();
     state.terms = adjustDie(state.terms, Number(btn.dataset.faces), Number(btn.dataset.delta));
     pushFormula();
   });
@@ -120,6 +121,7 @@ function buildTray() {
     const face = e.target.closest(".die__face");
     if (!face) return;
     e.preventDefault();
+    flushTyping();
     state.terms = adjustDie(state.terms, Number(face.dataset.faces), -1);
     pushFormula();
   });
@@ -215,8 +217,26 @@ function renderSummary(result) {
   $("hero-note").textContent = asFraction ? `${pct(p, 2)}% · ${odds}` : odds;
 }
 
+// The table's text depends only on the analysis and the display mode; the
+// target only paints a stripe. Rebuilding 1,500 rows of 400-digit BigInt
+// formatting on every mode click or DC keystroke was most of the cost of a
+// view change, so the body is rebuilt only when its content can differ.
+let tableCache = { result: null, display: null };
+
+function applyTargetStripe(result) {
+  const trs = $("table-body").children;
+  for (let i = 0; i < trs.length; i++) {
+    trs[i].classList.toggle("is-hit", state.target != null && result.rows[i].value >= state.target);
+  }
+}
+
 function renderTable(result) {
   const { rows, stats } = result;
+  if (tableCache.result === result && tableCache.display === state.display) {
+    applyTargetStripe(result);
+    return;
+  }
+  tableCache = { result, display: state.display };
   const cols = columnsFor(state.display, stats, { compact: true });
   const shown = Math.min(rows.length, TABLE_CAP);
 
@@ -232,14 +252,14 @@ function renderTable(result) {
   const parts = new Array(shown);
   for (let i = 0; i < shown; i++) {
     const r = rows[i];
-    const hit = state.target != null && r.value >= state.target;
     parts[i] =
-      `<tr${hit ? ' class="is-hit"' : ""}>` +
+      "<tr>" +
       cols.map((c) => `<td>${c.get(r)}</td>`).join("") +
       `<td>${oneIn(r.p, r.ways, stats.total)}</td></tr>`;
   }
   // Every cell is a number this module formatted itself — no external strings.
   $("table-body").innerHTML = parts.join("");
+  applyTargetStripe(result);
 
   const denom = denominatorOf(stats);
   const note = $("denom-note");
@@ -252,26 +272,78 @@ function renderTable(result) {
       : `${rows.length.toLocaleString()} totals`;
 }
 
-function renderExport(result) {
-  $("export-text").value = exportAs(state.format, {
+const PREVIEW_CAP = 2000; // rows serialised for the on-screen preview
+
+function exportPayload(result, rows = result.rows) {
+  return {
     formula: result.canonical,
-    rows: result.rows,
+    rows,
     stats: result.stats,
     display: state.display,
-  });
+  };
 }
 
-function render() {
+/** The full export — every row, however many there are. Copy and Download. */
+function exportFull(result) {
+  return exportAs(state.format, exportPayload(result));
+}
+
+/**
+ * The preview pane. Serialising 20,000 rows on every tray click cost more than
+ * the exact convolution did, so past a cap the preview is truncated and says
+ * so; Copy and Download still build the whole thing.
+ */
+let exportCache = { result: null, display: null, format: null };
+
+function renderExport(result) {
+  // Mode and target do not appear anywhere in an export.
+  if (exportCache.result === result && exportCache.display === state.display && exportCache.format === state.format) return;
+  exportCache = { result, display: state.display, format: state.format };
+  const long = result.rows.length > PREVIEW_CAP;
+  const rows = long ? result.rows.slice(0, PREVIEW_CAP) : result.rows;
+  const text = exportAs(state.format, exportPayload(result, rows));
+  $("export-text").value = long
+    ? `${text}\n… preview stops at ${PREVIEW_CAP.toLocaleString()} of ` +
+      `${result.rows.length.toLocaleString()} rows — Copy and Download give all of them.\n`
+    : text;
+}
+
+/** Wipe every readout, so nothing on screen describes a formula that is gone. */
+function renderEmpty(message) {
   const error = $("formula-error");
-  let result;
-  try {
-    result = analyze(formatTerms(state.terms));
-  } catch (err) {
-    if (!(err instanceof DiceError)) throw err;
-    error.hidden = false;
-    error.textContent = err.message;
-    state.last = null;
-    return;
+  error.hidden = !message;
+  error.textContent = message ?? "";
+  state.last = null;
+  tableCache = { result: null, display: null };
+  exportCache = { result: null, display: null, format: null };
+  dropSim();
+  chart.update(null);
+  $("chart-title").textContent = "Distribution";
+  $("tiles").replaceChildren();
+  $("hero").hidden = true;
+  $("table-head").replaceChildren();
+  $("table-body").replaceChildren();
+  $("denom-note").hidden = true;
+  $("table-note").textContent = "";
+  $("export-text").value = "";
+}
+
+/**
+ * Re-render everything. `reuse` skips the exact recomputation for view-only
+ * changes (mode, target, display, export format) — reparsing and reconvolving
+ * a 20,000-bin distribution on every Target/DC keystroke froze the page.
+ */
+function render({ reuse = false } = {}) {
+  const error = $("formula-error");
+  let result = reuse ? state.last : null;
+  if (!result) {
+    try {
+      result = analyze(formatTerms(state.terms));
+    } catch (err) {
+      if (!(err instanceof DiceError)) throw err;
+      renderEmpty(err.message);
+      return;
+    }
   }
   error.hidden = true;
   state.last = result;
@@ -304,17 +376,32 @@ function pushFormula() {
 }
 
 let timer = null;
+
+/**
+ * Adopt whatever is in the text box right now, cancelling the debounce.
+ * Without this, clicking a die within 140 ms of typing discards the keystrokes.
+ */
+function flushTyping() {
+  if (timer === null) return;
+  clearTimeout(timer);
+  timer = null;
+  try {
+    state.terms = parseFormula($("formula").value);
+  } catch {
+    /* leave state.terms as it was; the click still applies to it */
+  }
+}
+
 function onType() {
   clearTimeout(timer);
   timer = setTimeout(() => {
+    timer = null;
     const text = $("formula").value;
     try {
       state.terms = parseFormula(text);
     } catch (err) {
       if (!(err instanceof DiceError)) throw err;
-      $("formula-error").hidden = false;
-      $("formula-error").textContent = err.message;
-      state.last = null;
+      renderEmpty(err.message);
       return;
     }
     dropSim();
@@ -331,13 +418,23 @@ function writeHash() {
 }
 
 function readHash() {
-  const raw = decodeURIComponent(location.hash.replace(/^#/, "")).trim();
-  if (!raw) return;
   try {
+    const encoded = location.hash.replace(/^#/, "");
+    // A fragment can hold a bare "%" (…/#1d% is exactly what the d% tile
+    // advertises), which is not valid percent-encoding — decoding must not be
+    // allowed to throw out of here and take the rest of init() with it.
+    let raw;
+    try {
+      raw = decodeURIComponent(encoded);
+    } catch {
+      raw = encoded;
+    }
+    raw = raw.trim();
+    if (!raw) return;
     state.terms = parseFormula(raw);
     $("formula").value = formatTerms(state.terms);
   } catch {
-    /* keep the default formula */
+    /* keep whatever formula we already had */
   }
 }
 
@@ -403,7 +500,7 @@ function dropSim() {
 
 function clearSim() {
   dropSim();
-  if (state.last) render();
+  render({ reuse: true });
 }
 
 function reportBusy(done, total) {
@@ -564,8 +661,24 @@ function flash(msg) {
   }, 2200);
 }
 
+/** localStorage throws in some privacy configurations; never let that boot-loop. */
+function recall(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function remember(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* preference simply will not persist */
+  }
+}
+
 function initTheme() {
-  const saved = localStorage.getItem("dicelab-theme");
+  const saved = recall("dicelab-theme");
   if (saved) document.documentElement.dataset.theme = saved;
   const label = () => {
     const dark =
@@ -581,7 +694,7 @@ function initTheme() {
       (!document.documentElement.dataset.theme &&
         window.matchMedia("(prefers-color-scheme: dark)").matches);
     document.documentElement.dataset.theme = dark ? "light" : "dark";
-    localStorage.setItem("dicelab-theme", dark ? "light" : "dark");
+    remember("dicelab-theme", dark ? "light" : "dark");
     label();
     chart.redraw();
   });
@@ -599,7 +712,7 @@ function init() {
   buildFormats();
   buildSimControls();
   initTheme();
-  const savedDisplay = localStorage.getItem("dicelab-display");
+  const savedDisplay = recall("dicelab-display");
   if (savedDisplay === "fraction" || savedDisplay === "percent") state.display = savedDisplay;
   syncDisplayButtons();
   readHash();
@@ -608,15 +721,24 @@ function init() {
   $("formula").addEventListener("keydown", (e) => {
     if (e.key === "Enter") doRoll();
   });
-  $("roll").addEventListener("click", doRoll);
+  $("roll").addEventListener("click", () => {
+    flushTyping();
+    doRoll();
+  });
   $("clear").addEventListener("click", () => {
     state.terms = [];
+    timer = clearTimeout(timer) ?? null;
+    $("formula").value = "";
     $("roll-result").hidden = true;
-    pushFormula();
+    writeHash();
+    renderEmpty("Enter a formula, e.g. 3d4 + 2d20 + 4");
+    syncTray();
+    $("formula").focus();
   });
 
   document.querySelectorAll("[data-const]").forEach((b) =>
     b.addEventListener("click", () => {
+      flushTyping();
       state.terms = adjustConst(state.terms, Number(b.dataset.const));
       pushFormula();
     })
@@ -628,16 +750,16 @@ function init() {
       document
         .querySelectorAll("[data-mode]")
         .forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
-      if (state.last) render();
+      render({ reuse: true });
     })
   );
 
   document.querySelectorAll("[data-display]").forEach((b) =>
     b.addEventListener("click", () => {
       state.display = b.dataset.display;
-      localStorage.setItem("dicelab-display", state.display);
+      remember("dicelab-display", state.display);
       syncDisplayButtons();
-      if (state.last) render();
+      render({ reuse: true });
     })
   );
 
@@ -648,15 +770,22 @@ function init() {
     $("export-text").scrollIntoView({ behavior: "smooth", block: "nearest" });
   });
 
+  // Debounced: each keystroke of a DC repaints the chart and the table, and on
+  // a 20,000-bin distribution that is not free.
+  let targetTimer = null;
   $("target").addEventListener("input", () => {
-    const raw = $("target").value.trim();
-    const v = Number(raw);
-    state.target = raw === "" || !Number.isFinite(v) ? null : Math.round(v);
-    if (state.last) render();
+    clearTimeout(targetTimer);
+    targetTimer = setTimeout(() => {
+      const raw = $("target").value.trim();
+      const v = Number(raw);
+      state.target = raw === "" || !Number.isFinite(v) ? null : Math.round(v);
+      render({ reuse: true });
+    }, 120);
   });
 
   $("copy").addEventListener("click", async () => {
-    const text = $("export-text").value;
+    if (!state.last) return flash("Nothing to copy — fix the formula first");
+    const text = exportFull(state.last);
     try {
       await navigator.clipboard.writeText(text);
       flash("Copied to clipboard");
@@ -667,9 +796,9 @@ function init() {
   });
 
   $("download").addEventListener("click", () => {
-    if (!state.last) return;
+    if (!state.last) return flash("Nothing to download — fix the formula first");
     const writer = EXPORTERS[state.format];
-    const blob = new Blob([$("export-text").value], { type: `${writer.mime};charset=utf-8` });
+    const blob = new Blob([exportFull(state.last)], { type: `${writer.mime};charset=utf-8` });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `${state.last.canonical.replace(/[^0-9a-z]+/gi, "-").replace(/^-|-$/g, "") || "dice"}.${writer.ext}`;
@@ -680,6 +809,7 @@ function init() {
 
   window.addEventListener("hashchange", () => {
     readHash();
+    dropSim(); // the overlay belongs to the formula we just navigated away from
     syncTray();
     render();
   });

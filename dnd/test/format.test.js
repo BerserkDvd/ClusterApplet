@@ -223,3 +223,32 @@ test("odds stay right for ordinary rolls", () => {
   assert.equal(oneIn(rows[5].p, rows[5].ways, stats.total), "1 in 6.00");
   assert.equal(oneIn(rows[0].ge, rows[0].geWays, stats.total), "always");
 });
+
+/* ------------------------------------------------- audit regression tests */
+
+test("long distributions export as a longtable so no rows fall off the page", () => {
+  const short = exportAs("latex", payload("2d6")); // 11 rows
+  assert.match(short, /\\begin\{tabular\}/);
+  assert.ok(!short.includes("longtable"));
+  const long = exportAs("latex", payload("10d10")); // 91 rows — past one page
+  assert.match(long, /\\begin\{longtable\}/);
+  assert.match(long, /\\endhead/);
+  assert.ok(!long.includes("\\begin{table}"), "a longtable must not sit in a float");
+  // Every row is present, and the caption/label survive the switch.
+  const { rows } = payload("10d10");
+  for (const r of [rows[0], rows[rows.length - 1]]) {
+    assert.ok(long.includes(`  ${r.value} & `), `row ${r.value} missing`);
+  }
+  assert.match(long, /\\label\{tab:dice-10d10\}/);
+});
+
+test("pgfplots draws one bar per total, centred", () => {
+  const { rows } = payload("2d6");
+  const tex = exportAs("pgfplots", payload("2d6"));
+  assert.ok(!tex.includes("ybar interval"), "interval mode drops the last bar");
+  assert.match(tex, /ybar,/);
+  assert.match(tex, /bar width=/);
+  const coords = tex.match(/\((-?\d+),/g).map((m) => Number(m.slice(1, -1)));
+  assert.equal(coords.length, rows.length);
+  assert.deepEqual(coords, rows.map((r) => r.value));
+});

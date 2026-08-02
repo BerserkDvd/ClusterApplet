@@ -63,11 +63,19 @@ export function oneIn(p, ways, total) {
  * where the ordinary path prints a flat "0" for something that is not zero.
  * Dividing in BigInt first keeps the leading digits and the true exponent.
  */
+const POW10 = new Map();
+const pow10 = (k) => {
+  let v = POW10.get(k);
+  // Recomputing 10n**410n once per cell dominated the render of a big table.
+  if (v === undefined) POW10.set(k, (v = 10n ** BigInt(k)));
+  return v;
+};
+
 export function pctExact(ways, total, digits = 4) {
   if (ways <= 0n) return "0";
   if (ways >= total) return (100).toFixed(digits);
   const k = Math.max(0, total.toString().length - ways.toString().length) + 10;
-  const q = ((ways * 10n ** BigInt(k)) / total).toString();
+  const q = ((ways * pow10(k)) / total).toString();
   const exp = q.length - 1 + (2 - k); // exponent of the leading digit, as a %
   if (exp >= -digits) return (Number(`${q[0]}.${q.slice(1, 12)}`) * 10 ** exp).toFixed(digits);
   return `${q[0]}.${q.slice(1, 4)}e${exp}`;
@@ -82,6 +90,10 @@ export function num(v, digits = 3) {
 // (for 200d100 both run to ~400 digits), so numerator mode has nothing left to
 // show and falls back to percentages, saying why.
 export const LONG_DENOMINATOR = 30;
+
+// Rows that still fit one page inside a float; past this the LaTeX writer
+// switches to longtable so nothing falls off the bottom.
+const PAGE_ROWS = 36;
 
 /** The shared denominator of every probability for one formula. */
 export function denominatorOf(stats) {
@@ -237,8 +249,36 @@ function asLatex({ formula, rows, stats, display }) {
     (fractions
       ? `. Every entry is an exact count of those outcomes: divide by $${denom.text}$ for the probability.`
       : ".");
+  // A `tabular` inside a float is one unbreakable box: past a page of rows
+  // LaTeX reports "Float too large" and typesets the overflow off the page,
+  // so long distributions go out as a longtable instead — which is also why
+  // the caption/label move inside it.
+  if (rows.length > PAGE_ROWS) {
+    return [
+      "% Requires \\usepackage{booktabs,longtable,amsmath}.",
+      `\\begin{longtable}{${spec}}`,
+      `  \\caption{${caption}}`,
+      `  \\label{${texLabel(formula)}} \\\\`,
+      "  \\toprule",
+      `  ${head}`,
+      "  \\midrule",
+      "  \\endfirsthead",
+      "  \\toprule",
+      `  ${head}`,
+      "  \\midrule",
+      "  \\endhead",
+      "  \\midrule",
+      `  \\multicolumn{${spec.length}}{r}{\\emph{continued on the next page}} \\\\`,
+      "  \\endfoot",
+      "  \\bottomrule",
+      "  \\endlastfoot",
+      ...body,
+      "\\end{longtable}",
+      "",
+    ].join("\n");
+  }
   return [
-    "% Requires \\usepackage{booktabs,amsmath} (and longtable if it spans pages).",
+    "% Requires \\usepackage{booktabs,amsmath}.",
     "\\begin{table}[htbp]",
     "  \\centering",
     `  \\caption{${caption}}`,
@@ -265,7 +305,11 @@ function asPgfplots({ formula, rows, stats }) {
     "  \\begin{axis}[",
     `      title={\\texttt{${tex(formula)}}},`,
     "      xlabel={Total}, ylabel={Probability (\\%)},",
-    "      ymin=0, axis lines=left, ybar interval=0.9,",
+    // Plain `ybar`, not `ybar interval`: under `interval` a coordinate is a bin
+    // *edge*, so N coordinates draw N−1 bars — the highest total vanished and
+    // every bar sat half a bin to the right of the total it belongs to.
+    "      ymin=0, axis lines=left, ybar,",
+    `      bar width=${(10.5 / Math.max(rows.length, 1)).toFixed(3)}cm,`,
     "      width=12cm, height=7cm, tick align=outside,",
     `      xtick distance=${Math.max(1, Math.round(stats.bins / 10))},`,
     "    ]",
