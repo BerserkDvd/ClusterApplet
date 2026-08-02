@@ -13,6 +13,8 @@ import {
   constTotal,
   rollTerms,
   compileSampler,
+  denominatorDigits,
+  LIMITS,
   ratio,
   DiceError,
 } from "../src/dice.js";
@@ -374,17 +376,64 @@ test("constants merge from the last term, and several constants sum", () => {
   assert.equal(formatTerms(adjustConst(t, 1)), "1d6 + 2 + 4");
 });
 
-test("work is budgeted across the whole formula, not just per term", () => {
-  // Every group here passes the per-term limits; together they used to grind
-  // for seconds with no error, no progress and no way to cancel.
+test("a wall-clock deadline stops whatever the estimates get wrong", () => {
+  // Every group here passes the per-term gates; together they grind, and no
+  // static model caught them. The guarantee is not "this exact formula is
+  // refused" — a deadline is machine-dependent, and a borderline formula may
+  // legitimately land on either side — it is that nothing runs away.
   for (const heavy of [
-    Array(30).fill("6d100kh3").join(" + "),
+    Array(40).fill("6d100kh3").join(" + "),
+    Array(40).fill("15d20kl8").join(" + "),
+    Array(30).fill("10d100kh5").join(" + "),
     Array(16).fill("20d20kh10").join(" + "),
-    Array(30).fill("15d20kl8").join(" + "),
   ]) {
     const started = Date.now();
-    assert.throws(() => distribution(parseFormula(heavy)), DiceError, heavy.slice(0, 30));
-    assert.ok(Date.now() - started < 2000, "the refusal must be fast, not a timeout");
+    try {
+      distribution(parseFormula(heavy));
+    } catch (e) {
+      assert.ok(e instanceof DiceError, `unexpected error for ${heavy.slice(0, 24)}: ${e}`);
+    }
+    const ms = Date.now() - started;
+    assert.ok(ms < LIMITS.maxMillis * 3, `${heavy.slice(0, 24)}… ran ${ms}ms past a ${LIMITS.maxMillis}ms budget`);
+  }
+  // At least one of them must actually trip the deadline rather than a static
+  // gate, or the deadline is untested.
+  const started = Date.now();
+  assert.throws(() => distribution(parseFormula(Array(40).fill("6d100kh3").join(" + "))), DiceError);
+  assert.ok(Date.now() - started > 300, "this case should be caught by the clock, not a static gate");
+});
+
+test("the truly absurd is refused instantly, not after grinding", () => {
+  for (const f of ["500d41", "100d1000", "60d1000kh1"]) {
+    const started = Date.now();
+    assert.throws(() => distribution(parseFormula(f)), DiceError, f);
+    const ms = Date.now() - started;
+    assert.ok(ms < 200, `${f} took ${ms}ms to refuse — it should be a static gate`);
+  }
+});
+
+test("refusals talk about the time budget, never about exactness", () => {
+  // The engine can compute all of these exactly; what it lacks is the time.
+  for (const f of ["500d41", "100d1000", "60d1000kh1"]) {
+    let message = "";
+    try {
+      distribution(parseFormula(f));
+    } catch (e) {
+      message = e.message;
+    }
+    assert.ok(message, `${f} was not refused`);
+    assert.ok(!/exactly|exactness/i.test(message), `misleading message for ${f}: ${message}`);
+    assert.match(message, /budget|limit|longer|arithmetic/i);
+  }
+});
+
+test("cheap formulas are not refused just for being wide", () => {
+  // Each of these was refused by a bins-only limit while costing under 100ms.
+  for (const f of ["21d1000", "25d1000", "60d500", "40d1000", "50d10kh25", "30d20kh15", "12d100kh6", "60d8kh30"]) {
+    const started = Date.now();
+    assert.ok(distribution(parseFormula(f)).total > 0n, `${f} was refused`);
+    const ms = Date.now() - started;
+    assert.ok(ms < 1000, `${f} took ${ms}ms`);
   }
 });
 
@@ -404,5 +453,12 @@ test("nothing the limits accept blocks for long", () => {
     assert.ok(distribution(parseFormula(f)).total > 0n, f);
     const ms = Date.now() - started;
     assert.ok(ms < 1500, `${f} took ${ms}ms`);
+  }
+});
+
+test("the denominator's digit count is known without computing it", () => {
+  for (const f of ["2d6", "3d4 + 2d20 + 4", "200d100", "4d6kh3", "1d6 - 1d6"]) {
+    const terms = parseFormula(f);
+    assert.equal(denominatorDigits(terms), distribution(terms).total.toString().length, f);
   }
 });

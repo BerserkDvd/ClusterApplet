@@ -583,7 +583,9 @@ function simulate(requested) {
       maxGap,
       tvd: tvd / 2,
     };
-    render();
+    // The distribution has not changed — sampling never touches it — so this
+    // must not re-parse and re-convolve the formula.
+    render({ reuse: true });
     reportSim(state.sim, stats, requested);
   };
 

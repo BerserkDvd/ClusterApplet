@@ -16,10 +16,25 @@ export function pct(p, digits = 4) {
   return v.toExponential(3);
 }
 
-/** Big outcome counts, grouped: 1296 → "1,296". */
+/**
+ * Big outcome counts, grouped: 1296 → "1,296".
+ *
+ * Written as a linear walk rather than the obvious lookahead regex, whose
+ * `(?=(\d{3})+(?!\d))` rescans the tail at every position — quadratic in the
+ * digit count, which is ruinous here: 500d4 has 800-digit counts, and grouping
+ * 20,001 of them for an export cost 7 seconds.
+ */
 export function bigStr(v) {
   const s = v.toString();
-  return s.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const neg = s.charCodeAt(0) === 45;
+  const d = neg ? s.slice(1) : s;
+  // Anything that is not a plain digit run (a decimal, an exponent) is rare
+  // and short; let the regex handle those.
+  if (!/^\d+$/.test(d)) return s.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const head = d.length % 3 || 3;
+  let out = d.slice(0, head);
+  for (let i = head; i < d.length; i += 3) out += "," + d.slice(i, i + 3);
+  return neg ? "-" + out : out;
 }
 
 /**
@@ -71,10 +86,29 @@ const pow10 = (k) => {
   return v;
 };
 
-export function pctExact(ways, total, digits = 4) {
+/** Decimal digit count of a positive BigInt, without rendering it. */
+export function digitsOf(v, hi) {
+  let lo = 1;
+  hi = hi ?? 64;
+  while (v >= pow10(hi)) hi *= 2;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (v < pow10(mid)) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
+/**
+ * `denomDigits` is loop-invariant across a table — pass it in. Rendering an
+ * 800-digit BigInt to decimal just to count its digits, three times per row,
+ * was half the cost of formatting a large table.
+ */
+export function pctExact(ways, total, digits = 4, denomDigits) {
   if (ways <= 0n) return "0";
   if (ways >= total) return (100).toFixed(digits);
-  const k = Math.max(0, total.toString().length - ways.toString().length) + 10;
+  const dd = denomDigits ?? digitsOf(total);
+  const k = Math.max(0, dd - digitsOf(ways, dd + 1)) + 10;
   const q = ((ways * pow10(k)) / total).toString();
   const exp = q.length - 1 + (2 - k); // exponent of the leading digit, as a %
   if (exp >= -digits) return (Number(`${q[0]}.${q.slice(1, 12)}`) * 10 ** exp).toFixed(digits);
@@ -129,12 +163,13 @@ export function denominatorNote(denom) {
 export function columnsFor(display, stats, { grouped = true, compact = false } = {}) {
   const big = (v) => (compact ? approxBig(v) : grouped ? bigStr(v) : v.toString());
   if (!useFractions(display, stats)) {
+    const dd = digitsOf(stats.total);
     return [
       { head: "Total", get: (r) => String(r.value) },
       { head: "Ways", get: (r) => big(r.ways) },
-      { head: "P(=) %", get: (r) => pctExact(r.ways, stats.total) },
-      { head: "P(>=) %", get: (r) => pctExact(r.geWays, stats.total) },
-      { head: "P(<=) %", get: (r) => pctExact(r.leWays, stats.total) },
+      { head: "P(=) %", get: (r) => pctExact(r.ways, stats.total, 4, dd) },
+      { head: "P(>=) %", get: (r) => pctExact(r.geWays, stats.total, 4, dd) },
+      { head: "P(<=) %", get: (r) => pctExact(r.leWays, stats.total, 4, dd) },
     ];
   }
   return [
@@ -236,11 +271,12 @@ function asLatex({ formula, rows, stats, display }) {
   const head = fractions
     ? `Total & $P(X=x)\\, ${over} & $P(X\\geq x)\\, ${over} & $P(X\\leq x)\\, ${over} \\\\`
     : "Total & Ways & $P(X=x)$ \\% & $P(X\\geq x)$ \\% & $P(X\\leq x)$ \\% \\\\";
+  const dd = digitsOf(stats.total);
   const body = rows.map((r) =>
     fractions
       ? `    ${r.value} & ${r.ways} & ${r.geWays} & ${r.leWays} \\\\`
-      : `    ${r.value} & ${bigStr(r.ways)} & ${pctExact(r.ways, stats.total)} & ` +
-        `${pctExact(r.geWays, stats.total)} & ${pctExact(r.leWays, stats.total)} \\\\`
+      : `    ${r.value} & ${bigStr(r.ways)} & ${pctExact(r.ways, stats.total, 4, dd)} & ` +
+        `${pctExact(r.geWays, stats.total, 4, dd)} & ${pctExact(r.leWays, stats.total, 4, dd)} \\\\`
   );
   const caption =
     `Distribution of \\texttt{${tex(formula)}}: mean $${stats.mean.toFixed(4)}$, ` +

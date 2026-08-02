@@ -7,6 +7,8 @@ import {
   denominatorNote,
   useFractions,
   approxBig,
+  bigStr,
+  digitsOf,
   fraction,
   exportAs,
   EXPORTERS,
@@ -251,4 +253,34 @@ test("pgfplots draws one bar per total, centred", () => {
   const coords = tex.match(/\((-?\d+),/g).map((m) => Number(m.slice(1, -1)));
   assert.equal(coords.length, rows.length);
   assert.deepEqual(coords, rows.map((r) => r.value));
+});
+
+test("digit grouping is linear and byte-identical to the regex it replaced", () => {
+  const viaRegex = (v) => v.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  for (let i = -100000; i <= 100000; i += 13) assert.equal(bigStr(i), viaRegex(i), String(i));
+  for (const v of [0, -1, -123, -123456, 1234.5, -1234.5, 1e21, -1e21, 10n ** 400n, -(10n ** 400n)]) {
+    assert.equal(bigStr(v), viaRegex(v), String(v));
+  }
+  // …and fast enough that an export of 800-digit counts is not a freeze.
+  const wide = 7n ** 950n; // ~803 digits
+  const started = Date.now();
+  for (let i = 0; i < 20000; i++) bigStr(wide + BigInt(i));
+  const ms = Date.now() - started;
+  assert.ok(ms < 2000, `20,000 wide groupings took ${ms}ms`);
+});
+
+test("digitsOf counts digits without rendering the number", () => {
+  for (const v of [1n, 9n, 10n, 99n, 100n, 12345n, 10n ** 50n, 10n ** 50n - 1n, 7n ** 950n]) {
+    assert.equal(digitsOf(v), v.toString().length, v.toString().slice(0, 12));
+  }
+});
+
+test("passing the loop-invariant denominator size changes nothing but the cost", () => {
+  const { rows, stats } = payload("200d100");
+  const dd = digitsOf(stats.total);
+  for (const r of [rows[0], rows[100], rows[Math.floor(rows.length / 2)], rows[rows.length - 1]]) {
+    for (const w of [r.ways, r.geWays, r.leWays]) {
+      assert.equal(pctExact(w, stats.total, 4, dd), pctExact(w, stats.total), "hoisted digit count must not change output");
+    }
+  }
 });
