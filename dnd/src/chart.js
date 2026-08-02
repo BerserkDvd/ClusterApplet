@@ -66,12 +66,23 @@ export function createChart(container) {
     head.className = "chart-tip__head";
     head.textContent = `Total ${r.value}`;
     tip.append(head);
-    const lines = [
-      ["exactly", fmtPct(r.p)],
-      ["at least", fmtPct(r.ge)],
-      ["at most", fmtPct(r.le)],
-      ["ways", r.ways.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")],
-    ];
+    // Numerator mode: the counts themselves, with the shared denominator on
+    // its own line rather than repeated in every row.
+    const group = (v) => v.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const denom = state.denom;
+    const asFraction = state.display === "fraction" && denom && !denom.long;
+    const lines = asFraction
+      ? [
+          ["exactly", group(r.ways)],
+          ["at least", group(r.geWays)],
+          ["at most", group(r.leWays)],
+        ]
+      : [
+          ["exactly", fmtPct(r.p)],
+          ["at least", fmtPct(r.ge)],
+          ["at most", fmtPct(r.le)],
+          ["ways", group(r.ways)],
+        ];
     if (state.sim) {
       const key = (MODES[state.mode] ?? MODES.pmf).sim;
       lines.splice(1, 0, ["rolled", fmtPct(state.sim[key][i])]);
@@ -87,6 +98,12 @@ export function createChart(container) {
       l.textContent = label;
       row.append(v, l);
       tip.append(row);
+    }
+    if (asFraction) {
+      const foot = document.createElement("div");
+      foot.className = "chart-tip__foot";
+      foot.textContent = `out of ${denom.grouped} outcomes`;
+      tip.append(foot);
     }
     tip.hidden = false;
     const box = wrap.getBoundingClientRect();
