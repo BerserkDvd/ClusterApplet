@@ -20,12 +20,21 @@ export const LIMITS = {
   maxTerms: 40,
   maxTotalDice: 500,
   maxFaces: 1000,
-  maxBins: 20001, // distinct totals the result may span
-  maxKeepDice: 60, // dice in a single keep/drop term
-  maxKeepOps: 2.5e7, // DP work budget for a keep/drop term
-  maxConvOps: 5e7,
-  maxTotalOps: 1.2e7, // work budget across the whole formula, not per term
   maxConstant: 1e9,
+  maxKeepDice: 60, // dice in a single keep/drop term
+  // Rows the table and the exports have to carry.
+  maxBins: 40001,
+  // What actually costs time in the plain path: every one of those rows holds
+  // a BigInt as wide as the denominator, so cost tracks bins × digits rather
+  // than bins. Measured at 11–56 ms per million cells.
+  maxCells: 1.2e7,
+  // Deliberately loose — it exists to reject the absurd instantly (60d1000kh1
+  // scores 3.8e9 and runs for 68 s). No static estimate models this DP well
+  // across shapes, so the deadline below is what actually holds the line.
+  maxKeepOps: 1e9,
+  maxConvOps: 5e7,
+  // The real guarantee: whatever the estimates get wrong, computation stops.
+  maxMillis: 1200,
 };
 
 /* ------------------------------------------------------------------ parsing */
@@ -147,10 +156,13 @@ function convolveDie(dist, faces, sign) {
   return { min: sign > 0 ? dist.min + 1 : dist.min - faces, counts: out };
 }
 
+/** Wall clock, monotonic where available. */
+const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
 /** Full convolution of two distributions. */
 function convolve(a, b) {
   if (a.counts.length * b.counts.length > LIMITS.maxConvOps)
-    throw new DiceError("This combination is too large to compute exactly");
+    throw new DiceError("This combination needs more arithmetic than the time budget allows");
   const out = zeros(a.counts.length + b.counts.length - 1);
   for (let i = 0; i < a.counts.length; i++) {
     const ai = a.counts[i];
@@ -200,7 +212,7 @@ function keepCost(n, faces, k) {
   return faces * (n + 1) * (k + 1) * (n / 2 + 1) * (k * faces + 1);
 }
 
-function keepDistribution(n, faces, keep) {
+function keepDistribution(n, faces, keep, deadline = Infinity) {
   const k = Math.min(keep.k, n);
   if (k === 0) return { min: 0, counts: [BigInt(faces) ** BigInt(n)] };
   if (k === n) {
@@ -211,7 +223,7 @@ function keepDistribution(n, faces, keep) {
   const size = k * faces + 1;
   const est = keepCost(n, faces, k);
   if (est > LIMITS.maxKeepOps)
-    throw new DiceError(`${n}d${faces}${keep.raw} is too large to compute exactly — use fewer or smaller dice`);
+    throw new DiceError(`${n}d${faces}${keep.raw} needs far more arithmetic than the time budget allows`);
 
   const C = binomials(n);
   const W = k + 1;
@@ -224,6 +236,10 @@ function keepDistribution(n, faces, keep) {
   else for (let v = 1; v <= faces; v++) order.push(v);
 
   for (const v of order) {
+    if (now() > deadline)
+      throw new DiceError(
+        `${n}d${faces}${keep.raw} took longer than ${(LIMITS.maxMillis / 1000).toFixed(1)}s — use fewer or smaller dice`
+      );
     const ndp = new Array((n + 1) * W).fill(null);
     for (let m = 0; m <= n; m++) {
       for (let j = 0; j < W; j++) {
@@ -257,6 +273,16 @@ function keepDistribution(n, faces, keep) {
   return trim({ min: 0, counts });
 }
 
+/**
+ * Decimal digits in the denominator: the product of faces^count over every
+ * dice group, whether or not the group keeps all of them.
+ */
+export function denominatorDigits(terms) {
+  let log = 0;
+  for (const t of terms) if (t.kind === "dice") log += t.count * Math.log10(t.faces);
+  return Math.floor(log) + 1;
+}
+
 /** Number of distinct totals the formula can produce. */
 export function spanOf(terms) {
   let span = 0;
@@ -275,14 +301,22 @@ export function distribution(terms) {
     throw new DiceError(
       `That spans ${span.toLocaleString()} possible totals — above the ${LIMITS.maxBins.toLocaleString()} limit`
     );
+  const cells = span * denominatorDigits(terms);
+  if (cells > LIMITS.maxCells)
+    throw new DiceError(
+      `That is ${span.toLocaleString()} totals of ${denominatorDigits(terms).toLocaleString()}-digit counts — ` +
+        `more arithmetic than fits in the time budget. Use fewer or smaller dice.`
+    );
 
   let acc = { min: 0, counts: [1n] };
-  let work = 0;
-  const spend = (ops) => {
-    work += ops;
-    if (work > LIMITS.maxTotalOps)
+  // Every estimate above is a model; this is the measurement. Anything the
+  // models get wrong stops here rather than freezing the tab.
+  const deadline = now() + LIMITS.maxMillis;
+  const spend = () => {
+    if (now() > deadline)
       throw new DiceError(
-        "This formula needs too much exact arithmetic to stay responsive — use fewer or smaller dice groups"
+        `That took longer than ${(LIMITS.maxMillis / 1000).toFixed(1)}s of exact arithmetic — ` +
+          `use fewer or smaller dice groups`
       );
   };
   for (const t of terms) {
@@ -291,17 +325,16 @@ export function distribution(terms) {
       continue;
     }
     if (!t.keep) {
-      spend(t.count * (acc.counts.length + t.count * (t.faces - 1)));
-      for (let i = 0; i < t.count; i++) acc = convolveDie(acc, t.faces, t.sign);
+      for (let i = 0; i < t.count; i++) {
+        acc = convolveDie(acc, t.faces, t.sign);
+        if ((i & 15) === 0) spend();
+      }
     } else {
-      const kept = Math.min(t.keep.k, t.count);
-      // Both halves cost: the keep DP itself, then convolving its result into
-      // the accumulator. The DP's inner loop moves small BigInts, so it is
-      // charged at a discount against the same budget.
-      spend(keepCost(t.count, t.faces, kept) / 8 + acc.counts.length * (kept * (t.faces - 1) + 1));
-      const d = keepDistribution(t.count, t.faces, t.keep);
+      const d = keepDistribution(t.count, t.faces, t.keep, deadline);
+      spend();
       acc = convolve(acc, t.sign > 0 ? d : negate(d));
     }
+    spend();
   }
   let total = 0n;
   for (const c of acc.counts) total += c;

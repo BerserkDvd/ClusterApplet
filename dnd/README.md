@@ -68,16 +68,26 @@ probability path (the simulator is a separate, clearly-labelled overlay).
   ratios stay correctly rounded instead of drifting (`10.5`, not
   `10.499999999999998`).
 
-Limits are enforced rather than left to hang: 500 dice, d1000, 20001 distinct
-totals, and a work budget on the keep/drop DP. Anything past that is refused
-with a message instead of freezing the tab.
+Limits are enforced rather than left to hang, and they are calibrated against
+measurements rather than guessed. What costs time is not the number of rows but
+**rows × the width of the BigInt in each** — `21d1000` spans 20,980 totals and
+takes 16 ms, while `500d41` spans 20,001 and takes 900 ms, because its counts
+are 807 digits wide. So the gates are a bins ceiling (the table and exports
+have to carry them), a bins × digits budget, and a loose estimate for the
+keep/drop DP that only rejects the absurd instantly.
+
+No static model captures that DP across shapes, so behind all three sits a
+**wall-clock deadline**: whatever the estimates get wrong, computation stops
+and says the time budget was exceeded — never that the answer is inexact, which
+would be false. Every one of these is computed exactly; the only question is
+whether it fits in the budget.
 
 ## Layout
 
 | File | What it is |
 |---|---|
 | `src/dice.js` | parser, exact distribution engine, stats, sampler |
-| `src/format.js` | number formatting + the five export writers |
+| `src/format.js` | number formatting + the seven export writers |
 | `src/chart.js` | the SVG plot (marks, axes, tooltip, overlay) |
 | `src/app.js` | UI wiring: tray, presets, simulation, exports |
 | `test/dice.test.js` | engine tests, incl. brute-force cross-checks |
