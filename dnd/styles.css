@@ -61,6 +61,13 @@
   box-sizing: border-box;
 }
 
+/* An author `display` rule outranks the UA's `[hidden] { display: none }`, so
+   several flex containers below would ignore el.hidden = true entirely. State
+   it once, here, with the weight to win. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--page);
@@ -504,6 +511,19 @@ main {
 .seg:focus-visible {
   outline: 2px solid var(--series-1);
   outline-offset: -2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .chart-wrap {

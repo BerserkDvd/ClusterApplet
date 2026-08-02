@@ -9,6 +9,8 @@ import {
   analyze,
   adjustDie,
   adjustConst,
+  dieCount,
+  constTotal,
   rollTerms,
   compileSampler,
   ratio,
@@ -318,4 +320,89 @@ test("the sampler honours keep/drop and signs", () => {
   }
   assert.ok(a / 20000 > 13 && a / 20000 < 14.6, "advantage mean near 13.825");
   assert.ok(b / 20000 > 6.4 && b / 20000 < 7.9, "disadvantage mean near 7.175");
+});
+
+/* ------------------------------------------------- audit regression tests */
+
+test("a missing operator is an error, not a different die", () => {
+  // "1d20 5" used to become "1d205" once whitespace was stripped.
+  assert.throws(() => parseFormula("1d20 5"), DiceError);
+  assert.throws(() => parseFormula("2d6 3d4"), DiceError);
+  assert.throws(() => parseFormula("3 4"), DiceError);
+  // …while whitespace inside a group is still fine.
+  assert.equal(formatTerms(parseFormula("3 d 6")), "3d6");
+  assert.equal(formatTerms(parseFormula("4d6 kh3")), "4d6kh3");
+  assert.equal(formatTerms(parseFormula("  2d6  +  1  ")), "2d6 + 1");
+});
+
+test("constants are bounded, so formatTerms never emits something unparseable", () => {
+  assert.throws(() => parseFormula("1d6 + 99999999999999999999"), DiceError);
+  const ok = parseFormula("1d6 + 1000000000");
+  assert.equal(formatTerms(ok), "1d6 + 1000000000");
+  assert.deepEqual(parseFormula(formatTerms(ok)), ok);
+});
+
+test("every formula formats to something that parses back identically", () => {
+  for (const f of ["3d4+2d20+4", "-1d8+2", "4d6kh3-2", "1d6-1d6", "d%+7", "2d20kl1", "1d6 + 3d6 + 4"]) {
+    const terms = parseFormula(f);
+    const text = formatTerms(terms);
+    assert.deepEqual(parseFormula(text), terms, `round trip failed for ${f}`);
+    assert.equal(formatTerms(parseFormula(text)), text);
+  }
+});
+
+test("the tray sees every group of a die size, not just the first", () => {
+  // "Sneak attack" is a shipped preset with two separate d6 groups.
+  const terms = parseFormula("1d6 + 3d6 + 4");
+  assert.equal(dieCount(terms, 6), 4, "badge must count all four d6");
+  assert.equal(constTotal(terms), 4);
+  const plus = adjustDie(terms, 6, 1);
+  assert.equal(dieCount(plus, 6), 5, "a click must move the total by exactly one");
+  assert.equal(formatTerms(plus), "1d6 + 4d6 + 4");
+  const minus = adjustDie(terms, 6, -1);
+  assert.equal(dieCount(minus, 6), 3);
+  // Mixed signs still add up the way the badge says.
+  const mixed = parseFormula("3d6 - 1d6");
+  assert.equal(dieCount(mixed, 6), 2);
+  assert.equal(dieCount(adjustDie(mixed, 6, 1), 6), 3);
+});
+
+test("constants merge from the last term, and several constants sum", () => {
+  const t = parseFormula("1d6 + 2 + 3");
+  assert.equal(constTotal(t), 5);
+  assert.equal(constTotal(adjustConst(t, 1)), 6);
+  assert.equal(formatTerms(adjustConst(t, 1)), "1d6 + 2 + 4");
+});
+
+test("work is budgeted across the whole formula, not just per term", () => {
+  // Every group here passes the per-term limits; together they used to grind
+  // for seconds with no error, no progress and no way to cancel.
+  for (const heavy of [
+    Array(30).fill("6d100kh3").join(" + "),
+    Array(16).fill("20d20kh10").join(" + "),
+    Array(30).fill("15d20kl8").join(" + "),
+  ]) {
+    const started = Date.now();
+    assert.throws(() => distribution(parseFormula(heavy)), DiceError, heavy.slice(0, 30));
+    assert.ok(Date.now() - started < 2000, "the refusal must be fast, not a timeout");
+  }
+});
+
+test("nothing the limits accept blocks for long", () => {
+  for (const f of [
+    "3d4 + 2d20 + 4",
+    "4d6kh3",
+    "8d6",
+    "40d20 + 10d6 - 5",
+    "2d20kh1 + 5",
+    "500d4",
+    "200d100",
+    "20d20kh10",
+    Array(4).fill("10d100kh5").join(" + "),
+  ]) {
+    const started = Date.now();
+    assert.ok(distribution(parseFormula(f)).total > 0n, f);
+    const ms = Date.now() - started;
+    assert.ok(ms < 1500, `${f} took ${ms}ms`);
+  }
 });

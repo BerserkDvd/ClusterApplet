@@ -24,11 +24,16 @@ export const LIMITS = {
   maxKeepDice: 60, // dice in a single keep/drop term
   maxKeepOps: 2.5e7, // DP work budget for a keep/drop term
   maxConvOps: 5e7,
+  maxTotalOps: 1.2e7, // work budget across the whole formula, not per term
+  maxConstant: 1e9,
 };
 
 /* ------------------------------------------------------------------ parsing */
 
-const TERM_RE = /^(\d*)[dD](\d+|%)(?:(kh|kl|dh|dl)(\d*))?/i;
+// Whitespace is allowed *inside* a group (`3 d 6`, `4d6 kh3`) but never
+// between two terms: stripping it globally would turn "1d20 5" into "1d205",
+// silently changing the die instead of reporting the missing operator.
+const TERM_RE = /^(\d*)\s*[dD]\s*(\d+|%)(?:\s*(kh|kl|dh|dl)\s*(\d*))?/i;
 const CONST_RE = /^\d+/;
 
 /**
@@ -41,20 +46,25 @@ const CONST_RE = /^\d+/;
  * lowest K). Returns a list of terms; throws DiceError on anything else.
  */
 export function parseFormula(input) {
-  const src = String(input ?? "").replace(/[−–—]/g, "-").replace(/\s+/g, "");
+  const src = String(input ?? "").replace(/[−–—]/g, "-");
   const terms = [];
   let pos = 0;
   let totalDice = 0;
+  const skipSpace = () => {
+    while (pos < src.length && /\s/.test(src[pos])) pos += 1;
+  };
 
+  skipSpace();
   while (pos < src.length) {
     let sign = 1;
     const ch = src[pos];
     if (ch === "+" || ch === "-") {
       sign = ch === "-" ? -1 : 1;
       pos += 1;
+      skipSpace();
       if (pos >= src.length) throw new DiceError(`Dangling "${ch}" at the end of the formula`, pos);
     } else if (terms.length > 0) {
-      throw new DiceError(`Expected + or - before "${src.slice(pos)}"`, pos);
+      throw new DiceError(`Expected + or - before "${src.slice(pos).trim()}"`, pos);
     }
 
     const rest = src.slice(pos);
@@ -85,11 +95,18 @@ export function parseFormula(input) {
       pos += dice[0].length;
     } else {
       const num = CONST_RE.exec(rest);
-      if (!num) throw new DiceError(`Cannot read "${rest}" — expected something like 2d6 or 3`, pos);
-      terms.push({ kind: "const", sign, value: Number(num[0]) });
+      if (!num)
+        throw new DiceError(`Cannot read "${rest.trim()}" — expected something like 2d6 or 3`, pos);
+      const value = Number(num[0]);
+      // Unbounded constants round (1e17), then go exponential (1e21), and
+      // formatTerms would emit a string parseFormula cannot read back.
+      if (value > LIMITS.maxConstant)
+        throw new DiceError(`${num[0]} is above the ${LIMITS.maxConstant.toLocaleString()} modifier limit`, pos);
+      terms.push({ kind: "const", sign, value });
       pos += num[0].length;
     }
     if (terms.length > LIMITS.maxTerms) throw new DiceError(`Too many terms (limit ${LIMITS.maxTerms})`, pos);
+    skipSpace();
   }
   return terms;
 }
@@ -178,6 +195,11 @@ function binomials(n) {
  * set are exactly the first K encountered — so the kept sum is determined
  * without ever enumerating the N-tuples.
  */
+/** Rough op count for the keep/drop DP — the budget's estimate of its cost. */
+function keepCost(n, faces, k) {
+  return faces * (n + 1) * (k + 1) * (n / 2 + 1) * (k * faces + 1);
+}
+
 function keepDistribution(n, faces, keep) {
   const k = Math.min(keep.k, n);
   if (k === 0) return { min: 0, counts: [BigInt(faces) ** BigInt(n)] };
@@ -187,7 +209,7 @@ function keepDistribution(n, faces, keep) {
     return d;
   }
   const size = k * faces + 1;
-  const est = faces * (n + 1) * (k + 1) * (n / 2 + 1) * size;
+  const est = keepCost(n, faces, k);
   if (est > LIMITS.maxKeepOps)
     throw new DiceError(`${n}d${faces}${keep.raw} is too large to compute exactly — use fewer or smaller dice`);
 
@@ -255,14 +277,28 @@ export function distribution(terms) {
     );
 
   let acc = { min: 0, counts: [1n] };
+  let work = 0;
+  const spend = (ops) => {
+    work += ops;
+    if (work > LIMITS.maxTotalOps)
+      throw new DiceError(
+        "This formula needs too much exact arithmetic to stay responsive — use fewer or smaller dice groups"
+      );
+  };
   for (const t of terms) {
     if (t.kind === "const") {
       acc = { min: acc.min + t.sign * t.value, counts: acc.counts };
       continue;
     }
     if (!t.keep) {
+      spend(t.count * (acc.counts.length + t.count * (t.faces - 1)));
       for (let i = 0; i < t.count; i++) acc = convolveDie(acc, t.faces, t.sign);
     } else {
+      const kept = Math.min(t.keep.k, t.count);
+      // Both halves cost: the keep DP itself, then convolving its result into
+      // the accumulator. The DP's inner loop moves small BigInts, so it is
+      // charged at a discount against the same budget.
+      spend(keepCost(t.count, t.faces, kept) / 8 + acc.counts.length * (kept * (t.faces - 1) + 1));
       const d = keepDistribution(t.count, t.faces, t.keep);
       acc = convolve(acc, t.sign > 0 ? d : negate(d));
     }
@@ -390,7 +426,9 @@ export function analyze(input) {
  */
 export function adjustDie(terms, faces, delta) {
   const next = terms.map((t) => ({ ...t, keep: t.keep ? { ...t.keep } : null }));
-  const hit = next.find((t) => t.kind === "dice" && t.faces === faces && !t.keep);
+  // Edit the last plain group of that size, so the tray's total (which sums
+  // them all) always moves by exactly the delta.
+  const hit = next.filter((t) => t.kind === "dice" && t.faces === faces && !t.keep).pop();
   if (hit) {
     const signed = hit.sign * hit.count + delta;
     if (signed === 0) return next.filter((t) => t !== hit);
@@ -406,7 +444,7 @@ export function adjustDie(terms, faces, delta) {
 /** Same idea for the flat modifier. */
 export function adjustConst(terms, delta) {
   const next = terms.map((t) => ({ ...t, keep: t.keep ? { ...t.keep } : null }));
-  const hit = next.find((t) => t.kind === "const");
+  const hit = next.filter((t) => t.kind === "const").pop();
   if (hit) {
     const signed = hit.sign * hit.value + delta;
     if (signed === 0) return next.filter((t) => t !== hit);
@@ -419,10 +457,19 @@ export function adjustConst(terms, delta) {
   return next;
 }
 
-/** How many dice of one size the formula currently holds (signed). */
+/**
+ * How many dice of one size the formula holds, signed — summed across every
+ * plain group, since "1d6 + 3d6" is four d6 and the badge must say so.
+ */
 export function dieCount(terms, faces) {
-  const hit = terms.find((t) => t.kind === "dice" && t.faces === faces && !t.keep);
-  return hit ? hit.sign * hit.count : 0;
+  return terms
+    .filter((t) => t.kind === "dice" && t.faces === faces && !t.keep)
+    .reduce((n, t) => n + t.sign * t.count, 0);
+}
+
+/** The formula's total flat modifier, summed across every constant term. */
+export function constTotal(terms) {
+  return terms.filter((t) => t.kind === "const").reduce((n, t) => n + t.sign * t.value, 0);
 }
 
 /* ---------------------------------------------------------------- rolling */

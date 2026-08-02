@@ -3,7 +3,7 @@
 // One measure on one axis, per-mark hover/focus tooltip, table view alongside.
 
 const NS = "http://www.w3.org/2000/svg";
-const MARGIN = { top: 18, right: 18, bottom: 52, left: 62 };
+const MARGIN = { top: 26, right: 18, bottom: 52, left: 62 };
 
 const el = (tag, attrs = {}, text = null) => {
   const node = document.createElementNS(NS, tag);
@@ -43,8 +43,14 @@ export function createChart(container) {
   tip.hidden = true;
   const legend = document.createElement("div");
   legend.className = "chart-legend";
+  // role="img" is a leaf role, so nothing inside the SVG is announced; the
+  // keyboard readout goes through a polite live region instead.
+  const live = document.createElement("p");
+  live.className = "sr-only";
+  live.setAttribute("role", "status");
+  live.setAttribute("aria-live", "polite");
   wrap.append(svg, tip);
-  container.append(wrap, legend);
+  container.append(wrap, legend, live);
 
   let state = null;
   let focus = -1;
@@ -105,6 +111,10 @@ export function createChart(container) {
       foot.textContent = `out of ${denom.grouped} outcomes`;
       tip.append(foot);
     }
+    live.textContent =
+      `Total ${r.value}: ${asFraction ? `${r.ways} of ${denom.grouped} ways` : fmtPct(r.p)}, ` +
+      `${asFraction ? `${r.geWays} of ${denom.grouped}` : fmtPct(r.ge)} at least, ` +
+      `${asFraction ? `${r.leWays} of ${denom.grouped}` : fmtPct(r.le)} at most.`;
     tip.hidden = false;
     const box = wrap.getBoundingClientRect();
     const tw = tip.offsetWidth;
@@ -144,7 +154,14 @@ export function createChart(container) {
   function draw() {
     svg.replaceChildren();
     legend.replaceChildren();
-    if (!state || !state.rows.length) return;
+    hideTip(); // geometry is about to change under it
+    if (!state || !state.rows || !state.rows.length) {
+      svg.removeAttribute("viewBox");
+      svg.setAttribute("width", 0);
+      svg.setAttribute("height", 0);
+      live.textContent = "";
+      return;
+    }
 
     const { rows, stats, mode, target, formula, sim } = state;
     const spec = MODES[mode] ?? MODES.pmf;
@@ -159,16 +176,21 @@ export function createChart(container) {
         `mean ${stats.mean.toFixed(2)}. Full values are in the table below.`
     );
 
-    const x0 = MARGIN.left;
-    const x1 = W - MARGIN.right;
-    const y0 = MARGIN.top;
-    const y1 = H - MARGIN.bottom;
     const n = rows.length;
-    const band = (x1 - x0) / n;
     const values = rows.map(spec.pick);
     const simValues = sim ? sim[spec.sim] : null;
     const peak = Math.max(Math.max(...values), simValues ? Math.max(...simValues) : 0, 1e-12);
     const yMax = niceCeil(peak);
+    const tickLabel = (p) => `${+(p * 100).toPrecision(3)}%`;
+
+    // Reserve the width the tick labels actually need: at a sub-0.1% peak they
+    // read "0.024%", and a fixed margin puts them through the rotated title.
+    const widest = Math.max(...Array.from({ length: 6 }, (_, t) => tickLabel((yMax * t) / 5).length));
+    const x0 = Math.min(130, Math.max(58, 34 + widest * 7.2));
+    const x1 = W - MARGIN.right;
+    const y0 = MARGIN.top;
+    const y1 = H - MARGIN.bottom;
+    const band = (x1 - x0) / n;
     const xc = (i) => x0 + band * (i + 0.5);
     const yv = (p) => y1 - (p / yMax) * (y1 - y0);
     geom = {
@@ -185,19 +207,23 @@ export function createChart(container) {
       const p = (yMax * t) / ticks;
       const y = yv(p);
       if (t > 0) gridG.append(el("line", { x1: x0, x2: x1, y1: y, y2: y, class: "grid-line" }));
-      axisG.append(
-        el("text", { x: x0 - 10, y: y + 4, class: "tick tick--y" }, `${+(p * 100).toPrecision(3)}%`)
-      );
+      axisG.append(el("text", { x: x0 - 10, y: y + 4, class: "tick tick--y" }, tickLabel(p)));
     }
     gridG.append(el("line", { x1: x0, x2: x1, y1: y1, y2: y1, class: "axis-line" }));
     svg.append(gridG);
 
     // ---- x ticks --------------------------------------------------------
-    const step = xStep(n, Math.max(3, Math.floor((x1 - x0) / 64)));
-    const first = Math.ceil(stats.min / step) * step;
-    for (let v = first; v <= stats.max; v += step) {
-      const i = v - stats.min;
-      axisG.append(el("text", { x: xc(i), y: y1 + 20, class: "tick tick--x" }, String(v)));
+    const room = Math.max(4, Math.floor((x1 - x0) / 46));
+    const step = xStep(n, room);
+    const xMarks = new Set([stats.min, stats.max]);
+    for (let v = Math.ceil(stats.min / step) * step; v <= stats.max; v += step) xMarks.add(v);
+    // Endpoints are always labelled, but drop a stepped tick that would collide
+    // with one of them.
+    const guard = Math.max(1, Math.round(step / 2));
+    for (const v of [...xMarks].sort((a, b) => a - b)) {
+      const isEnd = v === stats.min || v === stats.max;
+      if (!isEnd && (v - stats.min < guard || stats.max - v < guard)) continue;
+      axisG.append(el("text", { x: xc(v - stats.min), y: y1 + 20, class: "tick tick--x" }, String(v)));
     }
     axisG.append(el("text", { x: (x0 + x1) / 2, y: H - 10, class: "axis-title" }, "Total"));
     axisG.append(
@@ -231,15 +257,29 @@ export function createChart(container) {
         marks.append(el("path", { d, class: `bar${hit(i) ? " bar--hit" : ""}`, "data-i": i }));
       }
     } else {
-      // Dense range: one 2px line over a 10%-opacity wash.
+      // Dense range: one 2px line over a 10%-opacity wash. At 20,000 bins
+      // across ~1,000px there are 20 points per pixel; keeping the peak of each
+      // pixel bucket is visually identical and turns a 550 kB path into ~30 kB.
+      const stride = Math.max(1, Math.ceil(n / ((x1 - x0) * 2)));
+      const sample = (from, to) => {
+        const idx = [];
+        for (let i = from; i <= to; i += stride) {
+          let best = i;
+          for (let j = i; j < Math.min(i + stride, to + 1); j++) if (values[j] > values[best]) best = j;
+          idx.push(best);
+        }
+        if (idx[idx.length - 1] !== to) idx.push(to);
+        return idx;
+      };
       const seg = (from, to, cls) => {
         if (to <= from) return;
-        let d = `M${xc(from)} ${y1}`;
-        for (let i = from; i <= to; i++) d += ` L${xc(i)} ${yv(values[i])}`;
+        const idx = sample(from, to);
+        let d = `M${xc(idx[0])} ${y1}`;
+        for (const i of idx) d += ` L${xc(i)} ${yv(values[i])}`;
         d += ` L${xc(to)} ${y1} Z`;
         marks.append(el("path", { d, class: `area${cls}` }));
-        let l = `M${xc(from)} ${yv(values[from])}`;
-        for (let i = from + 1; i <= to; i++) l += ` L${xc(i)} ${yv(values[i])}`;
+        let l = `M${xc(idx[0])} ${yv(values[idx[0]])}`;
+        for (const i of idx.slice(1)) l += ` L${xc(i)} ${yv(values[i])}`;
         marks.append(el("path", { d: l, class: `line${cls}` }));
       };
       let split = n - 1;
@@ -254,8 +294,10 @@ export function createChart(container) {
     // The sampled distribution rides on top of the exact one, same axis, same
     // units — a 2px line with end-dots where the bands are wide enough.
     if (simValues) {
+      const simStride = Math.max(1, Math.ceil(n / ((x1 - x0) * 2)));
       let d = `M${xc(0)} ${yv(simValues[0])}`;
-      for (let i = 1; i < n; i++) d += ` L${xc(i)} ${yv(simValues[i])}`;
+      for (let i = simStride; i < n; i += simStride) d += ` L${xc(i)} ${yv(simValues[i])}`;
+      d += ` L${xc(n - 1)} ${yv(simValues[n - 1])}`;
       marks.append(el("path", { d, class: "sim-line" }));
       if (band >= 14) {
         for (let i = 0; i < n; i++)
@@ -268,9 +310,16 @@ export function createChart(container) {
     const overlay = el("g", { class: "overlay" });
     if (mode === "pmf" && Number.isFinite(stats.mean)) {
       const mx = xc(stats.mean - stats.min);
-      overlay.append(el("line", { x1: mx, x2: mx, y1: y0 + 12, y2: y1, class: "marker" }));
+      overlay.append(el("line", { x1: mx, x2: mx, y1: y0, y2: y1, class: "marker" }));
+      // Above the plot area: niceCeil often lands exactly on the peak (1/20,
+      // 1/100, 27/216), and a label at y0 + 8 would sit inside a full-height bar.
+      const anchor = mx < x0 + 40 ? "start" : mx > x1 - 40 ? "end" : "middle";
       overlay.append(
-        el("text", { x: mx, y: y0 + 8, class: "marker-label" }, `mean ${stats.mean.toFixed(2)}`)
+        el(
+          "text",
+          { x: mx, y: y0 - 6, class: "marker-label", "text-anchor": anchor },
+          `mean ${stats.mean.toFixed(2)}`
+        )
       );
     }
     if (target != null && target > stats.min && target <= stats.max) {
