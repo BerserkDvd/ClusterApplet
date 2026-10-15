@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, memo, forwardRef, useImperativeHandle } from "react";
+import { flushSync } from "react-dom";
 import {
   R, C, PRESETS,
   dc, makeInitial, parsePresetText, presetToJSON, buildShareURL,
@@ -24,7 +25,6 @@ export default function MobileQuiverApp() {
   const [mode, setMode] = useState("mutate"); // "mutate" | "construct"
   const [flash, setFlash] = useState(null);
   const [drawFrom, setDrawFrom] = useState(null);
-  const [drawTo, setDrawTo] = useState(null); // {x,y} in world coords
   const [specResult, setSpecResult] = useState(null);
   const [specStep, setSpecStep] = useState(-1);
   const [searching, setSearching] = useState(false);
@@ -35,6 +35,7 @@ export default function MobileQuiverApp() {
   const [toast, setToast] = useState("");
   const [view, setView] = useState({ tx: 0, ty: 0, s: 1 });
   const [vbSize, setVbSize] = useState({ w: 900, h: 700 });
+  const [fitTick, setFitTick] = useState(0); // bump to fit the view to the current nodes
   const [celebKey, setCelebKey] = useState(0);
   const [celebData, setCelebData] = useState({ count: 0, method: "" });
   const [baselineGens, setBaselineGens] = useState(init0.nodes.map(nd => [...nd.charge]));
@@ -46,6 +47,50 @@ export default function MobileQuiverApp() {
   const gesture = useRef(null);   // active gesture state
   const longPressTimer = useRef(null);
   const pointers = useRef(new Map());
+  const sceneRef = useRef(null);
+  const previewRef = useRef({ next: null, raf: 0 });
+
+  // ── Gesture preview ──
+  // While a finger is down, the in-progress drag / pan / pinch / arrow lives in
+  // QuiverScene's own state, so a move re-renders only the quiver (and within it
+  // only the glyphs that moved), not the whole app. At most one update per frame;
+  // the gesture's end commits the result to the real state.
+  const showPreview = useCallback((p) => {
+    const pv = previewRef.current;
+    pv.next = p;
+    if (pv.raf) return;
+    pv.raf = requestAnimationFrame(() => {
+      pv.raf = 0;
+      // Render inside this frame, not in a later scheduler task, so the quiver
+      // doesn't trail the finger by an extra frame.
+      flushSync(() => { if (sceneRef.current) sceneRef.current.setPreview(pv.next); });
+    });
+  }, []);
+
+  const clearPreview = useCallback(() => {
+    const pv = previewRef.current;
+    if (pv.raf) { cancelAnimationFrame(pv.raf); pv.raf = 0; }
+    pv.next = null;
+    if (sceneRef.current) sceneRef.current.setPreview(null);
+  }, []);
+
+  // Commit what a gesture previewed (node position or view) and drop the preview.
+  const endGesture = useCallback((g) => {
+    if (g && g.kind === "dragNode" && g.last) {
+      const { hit, last } = g;
+      setNodes(nds => {
+        if (!nds[hit]) return nds;
+        const nn = [...nds];
+        nn[hit] = { ...nn[hit], x: last.x, y: last.y };
+        return nn;
+      });
+    } else if (g && (g.kind === "panView" || g.kind === "pinch") && g.lastView) {
+      setView(g.lastView);
+    }
+    clearPreview();
+  }, [clearPreview]);
+
+  useEffect(() => () => cancelAnimationFrame(previewRef.current.raf), []);
 
   // Toast helper
   const showToast = useCallback((msg) => {
@@ -78,11 +123,11 @@ export default function MobileQuiverApp() {
       ? p.mutLog.map(m => ({ index: m.index, charge: Array.isArray(m.charge) ? [...m.charge] : [] }))
       : []);
     setFlash(null);
-    setDrawFrom(null); setDrawTo(null);
+    setDrawFrom(null); clearPreview();
     setSpecResult(null); setSpecStep(-1);
     setBaselineGens(init.nodes.map(nd => [...nd.charge]));
-    autoFit(init.nodes);
-  }, [autoFit]);
+    setFitTick(t => t + 1);
+  }, [clearPreview]);
 
   const loadPreset = useCallback((idx) => {
     installPreset(presets[idx]);
@@ -225,7 +270,7 @@ export default function MobileQuiverApp() {
   const doFindSpecGen = useCallback(() => {
     if (nodes.length === 0) return;
     setMode("mutate");
-    setDrawFrom(null); setDrawTo(null);
+    setDrawFrom(null); clearPreview();
     setSearching(true);
     setSpecResult(null); setSpecStep(-1);
     setTimeout(() => {
@@ -234,7 +279,7 @@ export default function MobileQuiverApp() {
       else { setSpecResult(false); setSpecStep(-1); }
       setSearching(false);
     }, 50);
-  }, [nodes, B]);
+  }, [nodes, B, clearPreview]);
 
   const doCompleteSpecGen = useCallback(() => {
     if (nodes.length === 0) return;
@@ -248,7 +293,7 @@ export default function MobileQuiverApp() {
     for (let i = 0; i < nodes.length; i++) if (!nodes[i].frozen) mutableIdx.push(i);
     const origGens = mutableIdx.map(i => [...snap[i]]);
     setMode("mutate");
-    setDrawFrom(null); setDrawTo(null);
+    setDrawFrom(null); clearPreview();
     setSearching(true);
     setSpecResult(null); setSpecStep(-1);
     setTimeout(() => {
@@ -257,7 +302,7 @@ export default function MobileQuiverApp() {
       else { setSpecResult(false); setSpecStep(-1); }
       setSearching(false);
     }, 50);
-  }, [nodes, B, baselineGens]);
+  }, [nodes, B, baselineGens, clearPreview]);
 
   const rebaseBaseline = useCallback(() => {
     if (nodes.length === 0) return;
@@ -320,21 +365,23 @@ export default function MobileQuiverApp() {
   }, [exportJSON, showToast]);
 
   // ── Coordinate transforms ──
-  // screenToViewBox: screen px → viewBox coords, correctly handling letterboxing.
-  const screenToViewBox = useCallback((sx, sy) => {
+  // Inverse screen CTM of the SVG: maps screen px → viewBox coords, correctly handling
+  // letterboxing. A gesture captures it once at pointerdown (the canvas doesn't move
+  // mid-gesture), so pointermoves don't force a layout just to recompute it.
+  const svgInverseCTM = useCallback(() => {
     const el = svgRef.current;
-    if (!el || !el.getScreenCTM) return { x: sx, y: sy };
-    const ctm = el.getScreenCTM();
-    if (!ctm) return { x: sx, y: sy };
-    const pt = el.createSVGPoint();
-    pt.x = sx; pt.y = sy;
-    const v = pt.matrixTransform(ctm.inverse());
-    return { x: v.x, y: v.y };
+    const ctm = el && el.getScreenCTM ? el.getScreenCTM() : null;
+    return ctm ? ctm.inverse() : null;
   }, []);
 
-  const screenToWorld = useCallback((sx, sy) => {
-    const v = screenToViewBox(sx, sy);
-    return { x: (v.x - view.tx) / view.s, y: (v.y - view.ty) / view.s };
+  const screenToViewBox = useCallback((sx, sy, inv = svgInverseCTM()) => {
+    if (!inv) return { x: sx, y: sy };
+    return { x: inv.a * sx + inv.c * sy + inv.e, y: inv.b * sx + inv.d * sy + inv.f };
+  }, [svgInverseCTM]);
+
+  const screenToWorld = useCallback((sx, sy, inv, v = view) => {
+    const p = screenToViewBox(sx, sy, inv);
+    return { x: (p.x - v.tx) / v.s, y: (p.y - v.ty) / v.s };
   }, [view, screenToViewBox]);
 
   // ── Pointer gesture handling ──
@@ -348,28 +395,32 @@ export default function MobileQuiverApp() {
     if (!el) return;
     try { el.setPointerCapture(e.pointerId); } catch {}
     pointers.current.set(e.pointerId, { sx: e.clientX, sy: e.clientY });
+    const inv = svgInverseCTM();
 
     if (pointers.current.size === 2) {
-      // begin pinch
+      // begin pinch, keeping what the first finger already dragged or panned
       cancelLongPress();
+      const prev = gesture.current;
+      const startView = (prev && prev.lastView) || view;
+      endGesture(prev);
       const ps = [...pointers.current.values()];
       const dx = ps[0].sx - ps[1].sx, dy = ps[0].sy - ps[1].sy;
       gesture.current = {
-        kind: "pinch",
+        kind: "pinch", inv,
         startDist: Math.hypot(dx, dy),
         startCenter: { x: (ps[0].sx + ps[1].sx)/2, y: (ps[0].sy + ps[1].sy)/2 },
-        startView: { ...view },
+        startView: { ...startView },
       };
-      setDrawFrom(null); setDrawTo(null);
+      setDrawFrom(null);
       return;
     }
 
     if (pointers.current.size !== 1) return;
 
-    const w = screenToWorld(e.clientX, e.clientY);
+    const w = screenToWorld(e.clientX, e.clientY, inv);
     const hit = nodeAt(nodes, w.x, w.y, TOUCH_R);
     gesture.current = {
-      kind: "pending",
+      kind: "pending", inv,
       startSX: e.clientX, startSY: e.clientY,
       startWX: w.x, startWY: w.y,
       startTime: Date.now(),
@@ -390,7 +441,7 @@ export default function MobileQuiverApp() {
         longPressTimer.current = null;
       }, LONG_PRESS_MS);
     }
-  }, [nodes, mode, view, screenToWorld, cancelLongPress, removeNode]);
+  }, [nodes, mode, view, svgInverseCTM, screenToWorld, cancelLongPress, removeNode, endGesture]);
 
   const onPointerMove = useCallback((e) => {
     const p = pointers.current.get(e.pointerId);
@@ -407,13 +458,14 @@ export default function MobileQuiverApp() {
       const ratio = dist / g.startDist;
       const newS = Math.max(0.2, Math.min(6, g.startView.s * ratio));
       // Anchor zoom around the pinch's starting screen center, expressed in viewBox coords.
-      const vc = screenToViewBox(g.startCenter.x, g.startCenter.y);
+      const vc = screenToViewBox(g.startCenter.x, g.startCenter.y, g.inv);
       // world point under the pinch center (using the view that was active when pinch began)
       const wx = (vc.x - g.startView.tx) / g.startView.s;
       const wy = (vc.y - g.startView.ty) / g.startView.s;
       const tx = vc.x - wx * newS;
       const ty = vc.y - wy * newS;
-      setView({ tx, ty, s: newS });
+      g.lastView = { tx, ty, s: newS };
+      showPreview({ view: g.lastView });
       return;
     }
 
@@ -437,29 +489,26 @@ export default function MobileQuiverApp() {
     }
 
     if (g.kind === "dragNode") {
-      const w = screenToWorld(e.clientX, e.clientY);
+      const w = screenToWorld(e.clientX, e.clientY, g.inv, g.startView);
       const dwx = w.x - g.startWX, dwy = w.y - g.startWY;
-      setNodes(nds => {
-        const nn = [...nds];
-        nn[g.hit] = { ...nn[g.hit],
-          x: Math.max(R, Math.min(2000, g.origNodeX + dwx)),
-          y: Math.max(R, Math.min(2000, g.origNodeY + dwy)) };
-        return nn;
-      });
+      g.last = {
+        x: Math.max(R, Math.min(2000, g.origNodeX + dwx)),
+        y: Math.max(R, Math.min(2000, g.origNodeY + dwy)) };
+      showPreview({ drag: { idx: g.hit, x: g.last.x, y: g.last.y } });
     } else if (g.kind === "drawArrow") {
-      const w = screenToWorld(e.clientX, e.clientY);
-      setDrawTo({ x: w.x, y: w.y });
+      showPreview({ drawTo: screenToWorld(e.clientX, e.clientY, g.inv, g.startView) });
     } else if (g.kind === "panView") {
       // Translate screen delta into viewBox delta via CTM.
-      const a = screenToViewBox(g.startSX, g.startSY);
-      const b = screenToViewBox(e.clientX, e.clientY);
-      setView({
+      const a = screenToViewBox(g.startSX, g.startSY, g.inv);
+      const b = screenToViewBox(e.clientX, e.clientY, g.inv);
+      g.lastView = {
         tx: g.startView.tx + (b.x - a.x),
         ty: g.startView.ty + (b.y - a.y),
         s: g.startView.s,
-      });
+      };
+      showPreview({ view: g.lastView });
     }
-  }, [nodes, screenToWorld, cancelLongPress]);
+  }, [nodes, screenToViewBox, screenToWorld, cancelLongPress, showPreview]);
 
   const onPointerUp = useCallback((e) => {
     const el = svgRef.current;
@@ -472,6 +521,7 @@ export default function MobileQuiverApp() {
 
     if (g.kind === "pinch") {
       // If one pointer remains, drop into idle (don't smoothly transition to pan)
+      endGesture(g);
       gesture.current = null;
       return;
     }
@@ -485,7 +535,7 @@ export default function MobileQuiverApp() {
           // construct mode tap on node: nothing (drag-to-arrow / long-press-to-delete)
         } else {
           if (g.hitMode === "construct") {
-            const w = screenToWorld(e.clientX, e.clientY);
+            const w = screenToWorld(e.clientX, e.clientY, g.inv);
             if (w.x >= R && w.x <= 2000 && w.y >= R && w.y <= 2000)
               addNodeAt(Math.round(w.x), Math.round(w.y));
           }
@@ -493,22 +543,24 @@ export default function MobileQuiverApp() {
         }
       }
     } else if (g.kind === "drawArrow") {
-      const w = screenToWorld(e.clientX, e.clientY);
+      const w = screenToWorld(e.clientX, e.clientY, g.inv, g.startView);
       const hit = nodeAt(nodes, w.x, w.y, TOUCH_R);
       if (hit >= 0 && hit !== g.hit) addArrow(g.hit, hit);
-      setDrawFrom(null); setDrawTo(null);
+      setDrawFrom(null);
     }
-    // dragNode and panView: handled in move
+    // dragNode and panView: commit what the moves previewed
+    endGesture(g);
 
     gesture.current = null;
-  }, [doMutate, addNodeAt, addArrow, nodes, screenToWorld, cancelLongPress]);
+  }, [doMutate, addNodeAt, addArrow, nodes, screenToWorld, cancelLongPress, endGesture]);
 
   const onPointerCancel = useCallback((e) => {
     pointers.current.delete(e.pointerId);
     cancelLongPress();
+    endGesture(gesture.current);
     gesture.current = null;
-    setDrawFrom(null); setDrawTo(null);
-  }, [cancelLongPress]);
+    setDrawFrom(null);
+  }, [cancelLongPress, endGesture]);
 
   // Disable browser pinch-zoom / pull-to-refresh on the canvas
   useEffect(() => {
@@ -519,34 +571,32 @@ export default function MobileQuiverApp() {
     return () => el.removeEventListener("touchmove", onTouchMove);
   }, []);
 
-  // Track SVG container size so viewBox matches 1:1 (no letterboxing). On meaningful
-  // resize (e.g. portrait↔landscape) we re-fit so the quiver stays visible.
+  // Track SVG container size so viewBox matches 1:1 (no letterboxing).
   useEffect(() => {
     const el = svgRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    let lastFitKey = "";
     const ro = new ResizeObserver(entries => {
       for (const entry of entries) {
         const r = entry.contentRect;
         if (r.width <= 0 || r.height <= 0) continue;
         const w = Math.round(r.width), h = Math.round(r.height);
         setVbSize(prev => (prev.w === w && prev.h === h) ? prev : { w, h });
-        const key = `${w}x${h}`;
-        if (key !== lastFitKey) {
-          lastFitKey = key;
-          // refit on first meaningful size and on orientation flips
-          autoFit(nodes, w, h);
-        }
       }
     });
     ro.observe(el);
     return () => ro.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Derived ──
-  const edges = useMemo(() => getEdges(nodes, B), [nodes, B]);
+  // Fit the view when a preset loads and when the canvas size changes (first real
+  // size, orientation flips). As an effect it sees the nodes and size actually
+  // current; fitting from the ResizeObserver callback used the mount-time nodes,
+  // so a quiver opened from a link was fitted to the default preset instead.
+  useEffect(() => {
+    autoFit(nodes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitTick, vbSize]);
 
+  // ── Derived ──
   const allowedFlags = useMemo(() => {
     if (!showAllowed || !baselineGens) return null;
     const n = nodes.length;
@@ -579,17 +629,6 @@ export default function MobileQuiverApp() {
     for (const s of negSet) if (!curSet.has(s)) return false;
     return true;
   })();
-
-  let tempArrow = null;
-  if (drawFrom !== null && drawTo && nodes[drawFrom]) {
-    const nd = nodes[drawFrom];
-    const dx = drawTo.x - nd.x, dy = drawTo.y - nd.y;
-    const len = Math.sqrt(dx*dx + dy*dy);
-    if (len > R) {
-      const ux = dx/len, uy = dy/len;
-      tempArrow = { x1: nd.x + R*ux, y1: nd.y + R*uy, x2: drawTo.x, y2: drawTo.y };
-    }
-  }
 
   const switchToDesktop = useCallback(() => {
     // Rebuild the share URL from current state so the desktop view opens with whatever
@@ -646,93 +685,22 @@ export default function MobileQuiverApp() {
             <filter id="m-glow"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
             <filter id="m-mutGlow"><feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
           </defs>
-          <g transform={`translate(${view.tx},${view.ty}) scale(${view.s})`}>
-            {/* edges */}
-            {edges.map((e, i) => {
-              const HS = 9, AH_ = 9;
-              const useLabel = e.count > 3;
-              const nHeads = useLabel ? 1 : e.count;
-              const mx = (e.sx+e.tx)/2, my = (e.sy+e.ty)/2;
-              return (
-                <g key={i}>
-                  <line x1={e.sx} y1={e.sy} x2={e.tx} y2={e.ty} stroke={C.arrow} strokeWidth={1.8}/>
-                  {Array.from({length:nHeads},(_,h) => {
-                    const d = (h-(nHeads-1)/2)*HS;
-                    const tipX = mx+d*e.ux, tipY = my+d*e.uy;
-                    const bl = {x:tipX-AH_*0.45*e.ux-AH_*0.5*e.px, y:tipY-AH_*0.45*e.uy-AH_*0.5*e.py};
-                    const br = {x:tipX-AH_*0.45*e.ux+AH_*0.5*e.px, y:tipY-AH_*0.45*e.uy+AH_*0.5*e.py};
-                    return <polygon key={h} points={`${tipX},${tipY} ${bl.x},${bl.y} ${br.x},${br.y}`} fill={C.arrow}/>;
-                  })}
-                  {useLabel && (
-                    <text x={mx + 14*e.px} y={my + 14*e.py}
-                      textAnchor="middle" dominantBaseline="central"
-                      fill={C.dim} fontSize={13} fontFamily={MONO} fontWeight={600}>
-                      {e.count}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-
-            {/* draft arrow */}
-            {tempArrow && (
-              <line x1={tempArrow.x1} y1={tempArrow.y1} x2={tempArrow.x2} y2={tempArrow.y2}
-                stroke={C.drawArrow} strokeWidth={2.5} strokeDasharray="6 4" opacity={0.8}/>
-            )}
-
-            {/* nodes */}
-            {nodes.map((nd, i) => {
-              const isF = flash === i;
-              const isSource = drawFrom === i;
-              const isGuided = guidedNode === i;
-              const allowed = allowedFlags ? allowedFlags[i] : null;
-              return (
-                <g key={nd.id}>
-                  {allowed !== null && !isGuided && (
-                    <circle cx={nd.x} cy={nd.y} r={R+4} fill="none"
-                      stroke={allowed ? C.green : C.neg} strokeWidth={2.8}
-                      opacity={0.85} filter="url(#m-glow)"/>
-                  )}
-                  {isGuided && !isF && (
-                    <circle cx={nd.x} cy={nd.y} r={R+8} fill="none"
-                      stroke={C.specgen} strokeWidth={2.5} opacity={0.7} filter="url(#m-glow)">
-                      <animate attributeName="r" values={`${R+6};${R+11};${R+6}`} dur="1.5s" repeatCount="indefinite"/>
-                      <animate attributeName="opacity" values="0.7;0.3;0.7" dur="1.5s" repeatCount="indefinite"/>
-                    </circle>
-                  )}
-                  {(isF || isSource) && !isGuided && (
-                    <circle cx={nd.x} cy={nd.y} r={R+(allowed!==null?10:6)} fill="none"
-                      stroke={isF ? C.mutFlash : C.drawArrow} strokeWidth={2}
-                      opacity={isF ? 0.8 : 0.5} filter={isF ? "url(#m-mutGlow)" : "url(#m-glow)"}/>
-                  )}
-                  <circle cx={nd.x} cy={nd.y} r={R}
-                    fill={nd.frozen ? "transparent" : (isGuided ? "#2d1b4e" : C.nodeFill)}
-                    stroke={nd.frozen ? C.frozenStroke : (isGuided ? C.specgen : (isSource ? C.drawArrow : C.nodeStroke))}
-                    strokeWidth={nd.frozen ? 1.5 : (isGuided ? 2.5 : 2)}
-                    strokeDasharray={nd.frozen ? "5 3" : "none"}/>
-                  <text x={nd.x} y={nd.y+1} textAnchor="middle" dominantBaseline="central"
-                    fill={isGuided ? C.specgen : (isSource ? C.drawArrow : C.text)}
-                    fontSize={16} fontFamily={MONO} fontWeight={600}>
-                    {i+1}
-                  </text>
-                </g>
-              );
-            })}
-          </g>
+          <QuiverScene ref={sceneRef} nodes={nodes} B={B} view={view} flash={flash}
+            drawFrom={drawFrom} guidedNode={guidedNode} allowedFlags={allowedFlags} />
         </svg>
 
         {/* Mode + status overlay (top of canvas) */}
         <div style={{ position:"absolute", top:6, left:6, right:6, display:"flex", gap:6, pointerEvents:"none" }}>
           <div style={{ pointerEvents:"auto", display:"inline-flex", gap:0,
             background:"rgba(15,23,42,0.85)", border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden" }}>
-            <button onClick={() => { setMode("mutate"); setDrawFrom(null); setDrawTo(null); }}
+            <button onClick={() => { setMode("mutate"); setDrawFrom(null); clearPreview(); }}
               style={{ background: mode==="mutate" ? C.accent : "transparent",
                 color: mode==="mutate" ? "#0f172a" : C.dim,
                 border:"none", padding:"6px 12px", fontSize:12, fontFamily:MONO,
                 fontWeight: mode==="mutate" ? 700 : 400, cursor:"pointer" }}>
               Mutate
             </button>
-            <button onClick={() => { setMode("construct"); setDrawFrom(null); setDrawTo(null); }}
+            <button onClick={() => { setMode("construct"); setDrawFrom(null); clearPreview(); }}
               style={{ background: mode==="construct" ? C.accent : "transparent",
                 color: mode==="construct" ? "#0f172a" : C.dim,
                 border:"none", padding:"6px 12px", fontSize:12, fontFamily:MONO,
@@ -1178,6 +1146,121 @@ export default function MobileQuiverApp() {
     </div>
   );
 }
+
+// The quiver drawing. The parent streams in-progress gestures here via
+// ref.setPreview({ drag: {idx,x,y} } | { view } | { drawTo: {x,y} }), so a finger
+// move re-renders this subtree only; the memoized glyphs below then skip every
+// node and edge whose geometry didn't change.
+const QuiverScene = memo(forwardRef(function QuiverScene(
+  { nodes, B, view, flash, drawFrom, guidedNode, allowedFlags }, ref) {
+  const [preview, setPreview] = useState(null);
+  useImperativeHandle(ref, () => ({ setPreview }), []);
+
+  const drag = preview && preview.drag;
+  const shown = useMemo(() => {
+    if (!drag || !nodes[drag.idx]) return nodes;
+    const nn = [...nodes];
+    nn[drag.idx] = { ...nodes[drag.idx], x: drag.x, y: drag.y };
+    return nn;
+  }, [nodes, drag]);
+  const edges = useMemo(() => getEdges(shown, B), [shown, B]);
+  const v = (preview && preview.view) || view;
+
+  const drawTo = preview && preview.drawTo;
+  let tempArrow = null;
+  if (drawFrom !== null && drawTo && shown[drawFrom]) {
+    const nd = shown[drawFrom];
+    const dx = drawTo.x - nd.x, dy = drawTo.y - nd.y;
+    const len = Math.sqrt(dx*dx + dy*dy);
+    if (len > R) {
+      const ux = dx/len, uy = dy/len;
+      tempArrow = { x1: nd.x + R*ux, y1: nd.y + R*uy, x2: drawTo.x, y2: drawTo.y };
+    }
+  }
+
+  return (
+    <g transform={`translate(${v.tx},${v.ty}) scale(${v.s})`}>
+      {/* edges */}
+      {edges.map(e => (
+        <EdgeGlyph key={`${e.from}-${e.to}`} sx={e.sx} sy={e.sy} tx={e.tx} ty={e.ty}
+          ux={e.ux} uy={e.uy} px={e.px} py={e.py} count={e.count} />
+      ))}
+
+      {/* draft arrow */}
+      {tempArrow && (
+        <line x1={tempArrow.x1} y1={tempArrow.y1} x2={tempArrow.x2} y2={tempArrow.y2}
+          stroke={C.drawArrow} strokeWidth={2.5} strokeDasharray="6 4" opacity={0.8}/>
+      )}
+
+      {/* nodes */}
+      {shown.map((nd, i) => (
+        <NodeGlyph key={nd.id} label={i+1} x={nd.x} y={nd.y} frozen={!!nd.frozen}
+          isF={flash === i} isSource={drawFrom === i} isGuided={guidedNode === i}
+          allowed={allowedFlags ? allowedFlags[i] : null} />
+      ))}
+    </g>
+  );
+}));
+
+const EdgeGlyph = memo(function EdgeGlyph({ sx, sy, tx, ty, ux, uy, px, py, count }) {
+  const HS = 9, AH_ = 9;
+  const useLabel = count > 3;
+  const nHeads = useLabel ? 1 : count;
+  const mx = (sx+tx)/2, my = (sy+ty)/2;
+  return (
+    <g>
+      <line x1={sx} y1={sy} x2={tx} y2={ty} stroke={C.arrow} strokeWidth={1.8}/>
+      {Array.from({length:nHeads},(_,h) => {
+        const d = (h-(nHeads-1)/2)*HS;
+        const tipX = mx+d*ux, tipY = my+d*uy;
+        const bl = {x:tipX-AH_*0.45*ux-AH_*0.5*px, y:tipY-AH_*0.45*uy-AH_*0.5*py};
+        const br = {x:tipX-AH_*0.45*ux+AH_*0.5*px, y:tipY-AH_*0.45*uy+AH_*0.5*py};
+        return <polygon key={h} points={`${tipX},${tipY} ${bl.x},${bl.y} ${br.x},${br.y}`} fill={C.arrow}/>;
+      })}
+      {useLabel && (
+        <text x={mx + 14*px} y={my + 14*py}
+          textAnchor="middle" dominantBaseline="central"
+          fill={C.dim} fontSize={13} fontFamily={MONO} fontWeight={600}>
+          {count}
+        </text>
+      )}
+    </g>
+  );
+});
+
+const NodeGlyph = memo(function NodeGlyph({ label, x, y, frozen, isF, isSource, isGuided, allowed }) {
+  return (
+    <g>
+      {allowed !== null && !isGuided && (
+        <circle cx={x} cy={y} r={R+4} fill="none"
+          stroke={allowed ? C.green : C.neg} strokeWidth={2.8}
+          opacity={0.85} filter="url(#m-glow)"/>
+      )}
+      {isGuided && !isF && (
+        <circle cx={x} cy={y} r={R+8} fill="none"
+          stroke={C.specgen} strokeWidth={2.5} opacity={0.7} filter="url(#m-glow)">
+          <animate attributeName="r" values={`${R+6};${R+11};${R+6}`} dur="1.5s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values="0.7;0.3;0.7" dur="1.5s" repeatCount="indefinite"/>
+        </circle>
+      )}
+      {(isF || isSource) && !isGuided && (
+        <circle cx={x} cy={y} r={R+(allowed!==null?10:6)} fill="none"
+          stroke={isF ? C.mutFlash : C.drawArrow} strokeWidth={2}
+          opacity={isF ? 0.8 : 0.5} filter={isF ? "url(#m-mutGlow)" : "url(#m-glow)"}/>
+      )}
+      <circle cx={x} cy={y} r={R}
+        fill={frozen ? "transparent" : (isGuided ? "#2d1b4e" : C.nodeFill)}
+        stroke={frozen ? C.frozenStroke : (isGuided ? C.specgen : (isSource ? C.drawArrow : C.nodeStroke))}
+        strokeWidth={frozen ? 1.5 : (isGuided ? 2.5 : 2)}
+        strokeDasharray={frozen ? "5 3" : "none"}/>
+      <text x={x} y={y+1} textAnchor="middle" dominantBaseline="central"
+        fill={isGuided ? C.specgen : (isSource ? C.drawArrow : C.text)}
+        fontSize={16} fontFamily={MONO} fontWeight={600}>
+        {label}
+      </text>
+    </g>
+  );
+});
 
 function TabBtn({ label, onClick, disabled, accent, highlight }) {
   return (

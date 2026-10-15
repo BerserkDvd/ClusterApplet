@@ -427,7 +427,7 @@ export function getEdges(nodes, B) {
       const dx = x2-x1, dy = y2-y1, len = Math.sqrt(dx*dx+dy*dy);
       if (len < 2*R+4) continue;
       const ux = dx/len, uy = dy/len, px = -uy, py = ux;
-      edges.push({ sx: x1+R*ux, sy: y1+R*uy, tx: x2-R*ux, ty: y2-R*uy, ux, uy, px, py, count });
+      edges.push({ from, to, sx: x1+R*ux, sy: y1+R*uy, tx: x2-R*ux, ty: y2-R*uy, ux, uy, px, py, count });
     }
   return edges;
 }
